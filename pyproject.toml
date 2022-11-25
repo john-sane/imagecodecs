@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "imagecodecs"
+version = "2022.11.25"
+description = "tries to achieve PEP518 conformity to allow build from source on MacOS"
+authors = ["Christoph Gohlke, Johannes Strodel"]
+license = "BSD 3-Clause"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.23.5"
+cython = "^0.29.32"
+setuptools = "^65.6.3"
+wheel = "^0.38.4"
+
+
+[build-system]
+requires = ["setuptools", "wheel", "numpy", "cython"]
+build-backend = "setuptools.build_meta"
