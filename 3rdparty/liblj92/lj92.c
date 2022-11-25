@@ -85,7 +85,7 @@ typedef struct _ljp {
 static int find(ljp* self) {
     int ix = self->ix;
     u8* data = self->data;
-    while (ix<(self->datalen-1) && data[ix] != 0xFF) {
+    while (data[ix] != 0xFF && ix<(self->datalen-1)) {
         ix += 1;
     }
     ix += 2;

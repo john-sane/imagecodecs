@@ -1,7 +1,7 @@
 # imagecodecs/lcms2.pxd
 # cython: language_level = 3
 
-# Cython declarations for the `Little 2.13.1` library.
+# Cython declarations for the `Little 2.11` library.
 # https://github.com/mm2/Little-CMS
 
 from libc.stdint cimport uint8_t
@@ -353,31 +353,29 @@ cdef extern from 'lcms2.h':
 
     int cmsMAXCHANNELS
 
-    int PREMUL_SH(int)
-    int FLOAT_SH(int)
-    int OPTIMIZED_SH(int)
-    int COLORSPACE_SH(int)
-    int SWAPFIRST_SH(int)
-    int FLAVOR_SH(int)
-    int PLANAR_SH(int)
-    int ENDIAN16_SH(int)
-    int DOSWAP_SH(int)
-    int EXTRA_SH(int)
-    int CHANNELS_SH(int)
-    int BYTES_SH(int)
+    int FLOAT_SH
+    int OPTIMIZED_SH
+    int COLORSPACE_SH
+    int SWAPFIRST_SH
+    int FLAVOR_SH
+    int PLANAR_SH
+    int ENDIAN16_SH
+    int DOSWAP_SH
+    int EXTRA_SH
+    int CHANNELS_SH
+    int BYTES_SH
 
-    int T_PREMUL(int)
-    int T_FLOAT(int)
-    int T_OPTIMIZED(int)
-    int T_COLORSPACE(int)
-    int T_SWAPFIRST(int)
-    int T_FLAVOR(int)
-    int T_PLANAR(int)
-    int T_ENDIAN16(int)
-    int T_DOSWAP(int)
-    int T_EXTRA(int)
-    int T_CHANNELS(int)
-    int T_BYTES(int)
+    int T_FLOAT
+    int T_OPTIMIZED
+    int T_COLORSPACE
+    int T_SWAPFIRST
+    int T_FLAVOR
+    int T_PLANAR
+    int T_ENDIAN16
+    int T_DOSWAP
+    int T_EXTRA
+    int T_CHANNELS
+    int T_BYTES
 
     int PT_ANY
     int PT_GRAY
@@ -417,9 +415,7 @@ cdef extern from 'lcms2.h':
     int TYPE_GRAY_16_REV
     int TYPE_GRAY_16_SE
     int TYPE_GRAYA_8
-    int TYPE_GRAYA_8_PREMUL
     int TYPE_GRAYA_16
-    int TYPE_GRAYA_16_PREMUL
     int TYPE_GRAYA_16_SE
     int TYPE_GRAYA_8_PLANAR
     int TYPE_GRAYA_16_PLANAR
@@ -436,10 +432,8 @@ cdef extern from 'lcms2.h':
     int TYPE_BGR_16_SE
 
     int TYPE_RGBA_8
-    int TYPE_RGBA_8_PREMUL
     int TYPE_RGBA_8_PLANAR
     int TYPE_RGBA_16
-    int TYPE_RGBA_16_PREMUL
     int TYPE_RGBA_16_PLANAR
     int TYPE_RGBA_16_SE
 
@@ -448,18 +442,14 @@ cdef extern from 'lcms2.h':
     int TYPE_ARGB_16
 
     int TYPE_ABGR_8
-    int TYPE_ARGB_8_PREMUL
     int TYPE_ABGR_8_PLANAR
     int TYPE_ABGR_16
-    int TYPE_ARGB_16_PREMUL
     int TYPE_ABGR_16_PLANAR
     int TYPE_ABGR_16_SE
 
     int TYPE_BGRA_8
-    int TYPE_BGRA_8_PREMUL
     int TYPE_BGRA_8_PLANAR
     int TYPE_BGRA_16
-    int TYPE_BGRA_16_PREMUL
     int TYPE_BGRA_16_SE
 
     int TYPE_CMY_8
@@ -577,19 +567,13 @@ cdef extern from 'lcms2.h':
     int TYPE_Lab_FLT
     int TYPE_LabA_FLT
     int TYPE_GRAY_FLT
-    int TYPE_GRAYA_FLT
-    int TYPE_GRAYA_FLT_PREMUL
     int TYPE_RGB_FLT
 
     int TYPE_RGBA_FLT
-    int TYPE_RGBA_FLT_PREMUL
     int TYPE_ARGB_FLT
-    int TYPE_ARGB_FLT_PREMUL
     int TYPE_BGR_FLT
     int TYPE_BGRA_FLT
-    int TYPE_BGRA_FLT_PREMUL
     int TYPE_ABGR_FLT
-    int TYPE_ABGR_FLT_PREMUL
 
     int TYPE_CMYK_FLT
 
@@ -1183,10 +1167,6 @@ cdef extern from 'lcms2.h':
     ) nogil
 
     void* cmsStageData(
-        const cmsStage* mpe
-    ) nogil
-
-    cmsContext cmsGetStageContextID(
         const cmsStage* mpe
     ) nogil
 
@@ -2375,11 +2355,6 @@ cdef extern from 'lcms2.h':
 
     cmsFloat64Number cmsDetectTAC(
         cmsHPROFILE hProfile
-    ) nogil
-
-    cmsFloat64Number cmsDetectRGBProfileGamma(
-        cmsHPROFILE hProfile,
-        cmsFloat64Number threshold
     ) nogil
 
     cmsBool cmsDesaturateLab(

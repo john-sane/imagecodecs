@@ -1,7 +1,7 @@
 # imagecodecs/libavif.pxd
 # cython: language_level = 3
 
-# Cython declarations for the `libavif 0.10.1` library.
+# Cython declarations for the `libavif 0.9.0` library.
 # https://github.com/AOMediaCodec/libavif
 
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
@@ -18,9 +18,6 @@ cdef extern from 'avif/avif.h':
     int AVIF_TRUE
     int AVIF_FALSE
 
-    int AVIF_DIAGNOSTICS_ERROR_BUFFER_SIZE
-    int AVIF_DEFAULT_IMAGE_COUNT_LIMIT
-
     int AVIF_QUANTIZER_LOSSLESS
     int AVIF_QUANTIZER_BEST_QUALITY
     int AVIF_QUANTIZER_WORST_QUALITY
@@ -31,12 +28,10 @@ cdef extern from 'avif/avif.h':
     int AVIF_SPEED_SLOWEST
     int AVIF_SPEED_FASTEST
 
-    ctypedef enum avifPlanesFlag:
+    enum avifPlanesFlags:
         AVIF_PLANES_YUV
         AVIF_PLANES_A
         AVIF_PLANES_ALL
-
-    ctypedef uint32_t avifPlanesFlags
 
     enum avifChannelIndex:
         AVIF_CHAN_R
@@ -93,9 +88,6 @@ cdef extern from 'avif/avif.h':
         AVIF_RESULT_IO_NOT_SET
         AVIF_RESULT_IO_ERROR
         AVIF_RESULT_WAITING_ON_IO
-        AVIF_RESULT_INVALID_ARGUMENT
-        AVIF_RESULT_NOT_IMPLEMENTED
-        AVIF_RESULT_OUT_OF_MEMORY
 
     const char* avifResultToString(
         avifResult result
@@ -228,21 +220,14 @@ cdef extern from 'avif/avif.h':
         AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_CL
         AVIF_MATRIX_COEFFICIENTS_ICTCP
 
-    ctypedef struct avifDiagnostics:
-        char error[256]  # [AVIF_DIAGNOSTICS_ERROR_BUFFER_SIZE]
-
-    void avifDiagnosticsClearError(avifDiagnostics* diag) nogil
-
     # Optional transformation structs
 
-    ctypedef enum avifTransformFlag:
+    ctypedef enum avifTransformationFlags:
         AVIF_TRANSFORM_NONE
         AVIF_TRANSFORM_PASP
         AVIF_TRANSFORM_CLAP
         AVIF_TRANSFORM_IROT
         AVIF_TRANSFORM_IMIR
-
-    ctypedef uint32_t avifTransformFlags
 
     ctypedef struct avifPixelAspectRatioBox:
         uint32_t hSpacing
@@ -262,31 +247,7 @@ cdef extern from 'avif/avif.h':
         uint8_t angle
 
     ctypedef struct avifImageMirror:
-        uint8_t mode
-
-    ctypedef struct avifCropRect:
-        uint32_t x
-        uint32_t y
-        uint32_t width
-        uint32_t height
-
-    avifBool avifCropRectConvertCleanApertureBox(
-        avifCropRect* cropRect,
-        const avifCleanApertureBox* clap,
-        uint32_t imageW,
-        uint32_t imageH,
-        avifPixelFormat yuvFormat,
-        avifDiagnostics* diag
-    ) nogil
-
-    avifBool avifCleanApertureBoxConvertCropRect(
-        avifCleanApertureBox* clap,
-        const avifCropRect* cropRect,
-        uint32_t imageW,
-        uint32_t imageH,
-        avifPixelFormat yuvFormat,
-        avifDiagnostics* diag
-    ) nogil
+        uint8_t axis
 
     # avifImage
 
@@ -309,7 +270,7 @@ cdef extern from 'avif/avif.h':
         avifColorPrimaries colorPrimaries
         avifTransferCharacteristics transferCharacteristics
         avifMatrixCoefficients matrixCoefficients
-        avifTransformFlags transformFlags
+        uint32_t transformFlags
         avifPixelAspectRatioBox pasp
         avifCleanApertureBox clap
         avifImageRotation irot
@@ -329,13 +290,7 @@ cdef extern from 'avif/avif.h':
     void avifImageCopy(
         avifImage* dstImage,
         const avifImage* srcImage,
-        avifPlanesFlags planes
-    ) nogil
-
-    avifResult avifImageSetViewRect(
-        avifImage* dstImage,
-        const avifImage* srcImage,
-        const avifCropRect* rect
+        uint32_t planes
     ) nogil
 
     void avifImageDestroy(
@@ -362,18 +317,18 @@ cdef extern from 'avif/avif.h':
 
     void avifImageAllocatePlanes(
         avifImage* image,
-        avifPlanesFlags planes
+        uint32_t planes
     ) nogil
 
     void avifImageFreePlanes(
         avifImage* image,
-        avifPlanesFlags planes
+        uint32_t planes
     ) nogil
 
     void avifImageStealPlanes(
         avifImage* dstImage,
         avifImage* srcImage,
-        avifPlanesFlags planes
+        uint32_t planes
     ) nogil
 
     ctypedef enum avifRGBFormat:
@@ -406,7 +361,6 @@ cdef extern from 'avif/avif.h':
         avifRGBFormat format
         avifChromaUpsampling chromaUpsampling
         avifBool ignoreAlpha
-        avifBool isFloat
         avifBool alphaPremultiplied
         uint8_t* pixels
         uint32_t rowBytes
@@ -521,15 +475,13 @@ cdef extern from 'avif/avif.h':
         AVIF_CODEC_CHOICE_RAV1E
         AVIF_CODEC_CHOICE_SVT
 
-    ctypedef enum avifCodecFlag:
+    ctypedef enum avifCodecFlags:
         AVIF_CODEC_FLAG_CAN_DECODE
         AVIF_CODEC_FLAG_CAN_ENCODE
 
-    ctypedef uint32_t avifCodecFlags
-
     const char* avifCodecName(
         avifCodecChoice choice,
-        avifCodecFlags requiredFlags
+        uint32_t requiredFlags
     ) nogil
 
     avifCodecChoice avifCodecChoiceFromName(
@@ -595,14 +547,6 @@ cdef extern from 'avif/avif.h':
 
     # avifDecoder
 
-    ctypedef enum avifStrictFlag:
-        AVIF_STRICT_DISABLED
-        AVIF_STRICT_PIXI_REQUIRED
-        AVIF_STRICT_CLAP_VALID
-        AVIF_STRICT_ENABLED
-
-    ctypedef uint32_t avifStrictFlags
-
     ctypedef struct avifIOStats:
         size_t colorOBUSize
         size_t alphaOBUSize
@@ -622,38 +566,20 @@ cdef extern from 'avif/avif.h':
         double duration
         uint64_t durationInTimescales
 
-    ctypedef enum avifProgressiveState:
-        AVIF_PROGRESSIVE_STATE_UNAVAILABLE
-        AVIF_PROGRESSIVE_STATE_AVAILABLE
-        AVIF_PROGRESSIVE_STATE_ACTIVE
-
-    const char * avifProgressiveStateToString(
-        avifProgressiveState progressiveState
-    )
-
     ctypedef struct avifDecoder:
         avifCodecChoice codecChoice
-        int maxThreads
         avifDecoderSource requestedSource
-        avifBool allowProgressive
-        avifBool allowIncremental
-        avifBool ignoreExif
-        avifBool ignoreXMP
-        uint32_t imageSizeLimit
-        uint32_t imageCountLimit
-        avifStrictFlags strictFlags
-
         avifImage* image
         int imageIndex
         int imageCount
-        avifProgressiveState progressiveState
         avifImageTiming imageTiming
         uint64_t timescale
         double duration
         uint64_t durationInTimescales
         avifBool alphaPresent
+        avifBool ignoreExif
+        avifBool ignoreXMP
         avifIOStats ioStats
-        avifDiagnostics diag
         avifIO* io
         avifDecoderData* data
 
@@ -735,10 +661,6 @@ cdef extern from 'avif/avif.h':
         avifImageTiming* outTiming
     ) nogil
 
-    uint32_t avifDecoderDecodedRowCount(
-        const avifDecoder* decoder
-    ) nogil
-
     # avifEncoder
 
     struct avifEncoderData:
@@ -760,7 +682,6 @@ cdef extern from 'avif/avif.h':
         int keyframeInterval
         uint64_t timescale
         avifIOStats ioStats
-        avifDiagnostics diag
         avifEncoderData* data
         avifCodecSpecificOptions* csOptions
 
@@ -776,18 +697,16 @@ cdef extern from 'avif/avif.h':
         avifEncoder* encoder
     ) nogil
 
-    ctypedef enum avifAddImageFlag:
+    enum avifAddImageFlags:
         AVIF_ADD_IMAGE_FLAG_NONE
         AVIF_ADD_IMAGE_FLAG_FORCE_KEYFRAME
         AVIF_ADD_IMAGE_FLAG_SINGLE
-
-    ctypedef uint32_t avifAddImageFlags
 
     avifResult avifEncoderAddImage(
         avifEncoder* encoder,
         const avifImage* image,
         uint64_t durationInTimescales,
-        avifAddImageFlags addImageFlags
+        uint32_t addImageFlags
     ) nogil
 
     avifResult avifEncoderAddImageGrid(
@@ -795,7 +714,7 @@ cdef extern from 'avif/avif.h':
         uint32_t gridCols,
         uint32_t gridRows,
         const avifImage* const *cellImages,
-        avifAddImageFlags addImageFlags
+        uint32_t addImageFlags
     )
 
     avifResult avifEncoderFinish(

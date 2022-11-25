@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2020-2022, Christoph Gohlke
+# Copyright (c) 2020-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """Deflate and GZIP codecs for the imagecodecs package."""
 
-__version__ = '2022.2.22'
+__version__ = '2020.12.22'
 
 include '_shared.pxi'
 
@@ -71,9 +71,7 @@ def deflate_check(data):
     """Return True if data likely contains Deflate/Zlib data."""
 
 
-def deflate_encode(
-    data, level=None, bint raw=False, numthreads=None, out=None
-):
+def deflate_encode(data, level=None, bint raw=False, out=None):
     """Compress Deflate/Zlib.
 
     """
@@ -151,7 +149,7 @@ def deflate_encode(
     return _return_output(out, dstsize, dstlen, outgiven)
 
 
-def deflate_decode(data, bint raw=False, numthreads=None, out=None):
+def deflate_decode(data, bint raw=False, out=None):
     """Decompress Deflate/Zlib.
 
     """
@@ -173,7 +171,7 @@ def deflate_decode(data, bint raw=False, numthreads=None, out=None):
     if out is None:
         if dstsize < 0:
             if raw:
-                raise NotImplementedError  # TODO
+                raise NotImplementedError
 
             # use Python's zlib module if output size is unknwon
             import zlib
@@ -246,7 +244,7 @@ def gzip_check(data):
     return sig == b'\x1f\x8b'
 
 
-def gzip_encode(data, level=None, numthreads=None, out=None):
+def gzip_encode(data, level=None, out=None):
     """Compress GZIP.
 
     """
@@ -303,7 +301,7 @@ def gzip_encode(data, level=None, numthreads=None, out=None):
     return _return_output(out, dstsize, dstlen, outgiven)
 
 
-def gzip_decode(data, numthreads=None, out=None):
+def gzip_decode(data, out=None):
     """Decompress GZIP.
 
     Supports only single-member streams < 2^32.

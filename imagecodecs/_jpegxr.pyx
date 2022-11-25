@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2016-2022, Christoph Gohlke
+# Copyright (c) 2016-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,7 +41,7 @@ The JPEG XR format is also known as HD Photo or Windows Media Photo.
 
 """
 
-__version__ = '2022.2.22'
+__version__ = '2021.2.26'
 
 include '_shared.pxi'
 
@@ -51,18 +51,17 @@ from jxrlib cimport *
 class JPEGXR:
     """JPEG XR Constants."""
 
-    class PI(enum.IntEnum):
-        # Photometric Interpretation
-        W0 = PK_PI_W0
-        B0 = PK_PI_B0
-        RGB = PK_PI_RGB
-        RGBPalette = PK_PI_RGBPalette
-        TransparencyMask = PK_PI_TransparencyMask
-        CMYK = PK_PI_CMYK
-        YCbCr = PK_PI_YCbCr
-        CIELab = PK_PI_CIELab
-        NCH = PK_PI_NCH
-        RGBE = PK_PI_RGBE
+    # Photometric Interpretation
+    PI_W0 = PK_PI_W0
+    PI_B0 = PK_PI_B0
+    PI_RGB = PK_PI_RGB
+    PI_RGBPalette = PK_PI_RGBPalette
+    PI_TransparencyMask = PK_PI_TransparencyMask
+    PI_CMYK = PK_PI_CMYK
+    PI_YCbCr = PK_PI_YCbCr
+    PI_CIELab = PK_PI_CIELab
+    PI_NCH = PK_PI_NCH
+    PI_RGBE = PK_PI_RGBE
 
 
 class JpegxrError(RuntimeError):
@@ -114,14 +113,13 @@ def jpegxr_encode(
     photometric=None,
     hasalpha=None,
     resolution=None,
-    numthreads=None,
     out=None
 ):
     """Return JPEG XR image from numpy array.
 
     """
     cdef:
-        numpy.ndarray src = numpy.ascontiguousarray(data)
+        numpy.ndarray src = data
         numpy.dtype dtype = src.dtype
         const uint8_t[::1] dst  # must be const to write to bytes
         U8* outbuffer = NULL
@@ -143,6 +141,9 @@ def jpegxr_encode(
         U32 stride
         ERR err
 
+    if data is out:
+        raise ValueError('cannot encode in-place')
+
     if (
         dtype not in (
             numpy.bool8,
@@ -152,7 +153,7 @@ def jpegxr_encode(
             numpy.float32,
         )
         and src.ndim in (2, 3)
-        # and numpy.PyArray_ISCONTIGUOUS(src)
+        and numpy.PyArray_ISCONTIGUOUS(src)
     ):
         raise ValueError('invalid data shape, strides, or dtype')
 
@@ -276,7 +277,7 @@ def jpegxr_encode(
     return _return_output(out, dstsize, byteswritten, outgiven)
 
 
-def jpegxr_decode(data, index=None, fp2int=False, numthreads=None, out=None):
+def jpegxr_decode(data, index=None, fp2int=False, out=None):
     """Decode JPEG XR image to numpy array.
 
     fp2int: bool

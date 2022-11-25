@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2018-2022, Christoph Gohlke
+# Copyright (c) 2018-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,11 +37,16 @@
 
 """JPEG 12-bit codec for the imagecodecs package."""
 
-__version__ = '2022.8.8'
+__version__ = '2021.4.28'
 
 include '_shared.pxi'
 
-from libjpeg_turbo cimport *
+# DEF HAVE_LIBJPEG_TURBO = True
+
+IF HAVE_LIBJPEG_TURBO:
+    from libjpeg_turbo cimport *
+ELSE:
+    from libjpeg cimport *
 
 from cython.operator cimport dereference as deref
 
@@ -51,24 +56,24 @@ from libc.setjmp cimport setjmp, longjmp, jmp_buf
 class JPEG12:
     """JPEG 12-bit Constants."""
 
-    class CS(enum.IntEnum):
-        UNKNOWN = JCS_UNKNOWN
-        GRAYSCALE = JCS_GRAYSCALE
-        RGB = JCS_RGB
-        YCbCr = JCS_YCbCr
-        CMYK = JCS_CMYK
-        YCCK = JCS_YCCK
-        EXT_RGB = JCS_EXT_RGB
-        EXT_RGBX = JCS_EXT_RGBX
-        EXT_BGR = JCS_EXT_BGR
-        EXT_BGRX = JCS_EXT_BGRX
-        EXT_XBGR = JCS_EXT_XBGR
-        EXT_XRGB = JCS_EXT_XRGB
-        EXT_RGBA = JCS_EXT_RGBA
-        EXT_BGRA = JCS_EXT_BGRA
-        EXT_ABGR = JCS_EXT_ABGR
-        EXT_ARGB = JCS_EXT_ARGB
-        RGB565 = JCS_RGB565
+    CS_UNKNOWN = JCS_UNKNOWN
+    CS_GRAYSCALE = JCS_GRAYSCALE
+    CS_RGB = JCS_RGB
+    CS_YCbCr = JCS_YCbCr
+    CS_CMYK = JCS_CMYK
+    CS_YCCK = JCS_YCCK
+    IF HAVE_LIBJPEG_TURBO:
+        CS_EXT_RGB = JCS_EXT_RGB
+        CS_EXT_RGBX = JCS_EXT_RGBX
+        CS_EXT_BGR = JCS_EXT_BGR
+        CS_EXT_BGRX = JCS_EXT_BGRX
+        CS_EXT_XBGR = JCS_EXT_XBGR
+        CS_EXT_XRGB = JCS_EXT_XRGB
+        CS_EXT_RGBA = JCS_EXT_RGBA
+        CS_EXT_BGRA = JCS_EXT_BGRA
+        CS_EXT_ABGR = JCS_EXT_ABGR
+        CS_EXT_ARGB = JCS_EXT_ARGB
+        CS_RGB565 = JCS_RGB565
 
 
 class Jpeg12Error(RuntimeError):
@@ -77,14 +82,17 @@ class Jpeg12Error(RuntimeError):
 
 def jpeg12_version():
     """Return libjpeg12 library version string."""
-    ver = str(LIBJPEG_TURBO_VERSION_NUMBER)
-    return 'libjpeg12_turbo {}.{}.{}/{:.1f}'.format(
-        int(ver[:1]), int(ver[3:4]), int(ver[6:]), JPEG_LIB_VERSION / 10.0
-    )
+    IF HAVE_LIBJPEG_TURBO:
+        ver = str(LIBJPEG_TURBO_VERSION_NUMBER)
+        return 'libjpeg12_turbo {}.{}.{}/{:.1f}'.format(
+            int(ver[:1]), int(ver[3:4]), int(ver[6:]), JPEG_LIB_VERSION / 10.0
+        )
+    ELSE:
+        return f'libjpeg12 {JPEG_LIB_VERSION_MAJOR}.{JPEG_LIB_VERSION_MINOR}'
 
 
 def jpeg12_check(const uint8_t[::1] data):
-    """Return True if data likely contains a JPEG image."""
+    """Return True if data likely contains a JPEG 12-bit image."""
     sig = bytes(data[:10])
     return (
         sig[:4] == b'\xFF\xD8\xFF\xDB'
@@ -103,15 +111,13 @@ def jpeg12_encode(
     subsampling=None,
     optimize=None,
     smoothing=None,
-    validate=True,
-    numthreads=None,
     out=None
 ):
     """Return JPEG 12-bit image from numpy array.
 
     """
     cdef:
-        numpy.ndarray src = numpy.asarray(data)
+        numpy.ndarray src = data
         const uint8_t[::1] dst  # must be const to write to bytes
         ssize_t dstsize
         ssize_t srcsize = src.nbytes
@@ -131,6 +137,9 @@ def jpeg12_encode(
         int smoothing_factor = _default_value(smoothing, -1, 0, 100)
         int optimize_coding = -1 if optimize is None else 1 if optimize else 0
 
+    if data is out:
+        raise ValueError('cannot encode in-place')
+
     if not (
         src.dtype == numpy.uint16
         and src.ndim in (2, 3)
@@ -139,36 +148,30 @@ def jpeg12_encode(
         and src.strides[src.ndim-1] == src.itemsize
         and (src.ndim == 2 or src.strides[1] == samples * src.itemsize)
     ):
-        raise ValueError('invalid data shape, strides, or dtype')
+        raise ValueError('invalid input shape, strides, or dtype')
 
-    if validate and not _check_12bit(src):
+    if not _check_12bit(src):
         # values larger than 12-bit cause segfault
         raise ValueError('all data values must be < 4096')
 
-    if colorspace is not None:
+    if colorspace is None:
+        if samples == 1:
+            in_color_space = JCS_GRAYSCALE
+        elif samples == 3:
+            in_color_space = JCS_RGB
+        # elif samples == 4:
+        #     in_color_space = JCS_EXT_RGBA
+        #     in_color_space = JCS_CMYK
+        else:
+            # libjpeg-turbo does not currently support alpha channels.
+            # JCS_UNKNOWN seems to preserve the 4th channel.
+            in_color_space = JCS_UNKNOWN
+    else:
         in_color_space = _jcs_colorspace(colorspace)
         if samples not in _jcs_colorspace_samples(in_color_space):
-            raise ValueError('invalid data shape')
-    elif samples == 1:
-        in_color_space = JCS_GRAYSCALE
-    elif samples == 3:
-        in_color_space = JCS_RGB
-    # elif samples == 4:
-    #     in_color_space = JCS_EXT_RGBA
-    #     in_color_space = JCS_CMYK
-    else:
-        # libjpeg-turbo does not currently support alpha channels.
-        # JCS_UNKNOWN seems to preserve the 4th channel.
-        in_color_space = JCS_UNKNOWN
+            raise ValueError('invalid input shape')
 
-    if in_color_space == JCS_GRAYSCALE:
-        jpeg_color_space = JCS_GRAYSCALE
-    elif outcolorspace is not None:
-        jpeg_color_space = _jcs_colorspace(outcolorspace)
-    elif in_color_space == JCS_RGB or in_color_space == JCS_YCbCr:
-        jpeg_color_space = JCS_YCbCr
-    else:
-        jpeg_color_space = JCS_UNKNOWN
+    jpeg_color_space = _jcs_colorspace(outcolorspace)
 
     if jpeg_color_space == JCS_YCbCr and subsampling is not None:
         if subsampling in ('444', (1, 1)):
@@ -220,9 +223,10 @@ def jpeg12_encode(
 
         if in_color_space != JCS_UNKNOWN:
             cinfo.in_color_space = in_color_space
+        if jpeg_color_space != JCS_UNKNOWN:
+            cinfo.jpeg_color_space = jpeg_color_space
 
         jpeg_set_defaults(&cinfo)
-        jpeg_set_colorspace(&cinfo, jpeg_color_space)
         jpeg_mem_dest(&cinfo, &outbuffer, &outsize)  # must call after defaults
         jpeg_set_quality(&cinfo, quality, 1)
 
@@ -270,7 +274,6 @@ def jpeg12_decode(
     colorspace=None,
     outcolorspace=None,
     shape=None,
-    numthreads=None,
     out=None
 ):
     """Decode JPEG 12-bit image to numpy array.
@@ -301,11 +304,7 @@ def jpeg12_decode(
         # limit to 4 GB
         raise ValueError('data too large')
 
-    if colorspace is None:
-        jpeg_color_space = JCS_UNKNOWN
-    else:
-        jpeg_color_space = _jcs_colorspace(colorspace)
-
+    jpeg_color_space = _jcs_colorspace(colorspace)
     if outcolorspace is None:
         out_color_space = jpeg_color_space
     else:
@@ -397,67 +396,96 @@ cdef void my_output_message(jpeg_common_struct* cinfo) nogil:
 
 def _jcs_colorspace(colorspace):
     """Return JCS colorspace value from user input."""
-    if isinstance(colorspace, str):
-        colorspace = colorspace.upper()
-    return {
-        None: JCS_UNKNOWN,
-        'UNKNOWN': JCS_UNKNOWN,
-        'GRAY': JCS_GRAYSCALE,
-        'GRAYSCALE': JCS_GRAYSCALE,
-        'MINISWHITE': JCS_GRAYSCALE,
-        'MINISBLACK': JCS_GRAYSCALE,
-        'RGB': JCS_RGB,
-        'CMYK': JCS_CMYK,
-        'SEPARATED': JCS_CMYK,
-        'YCCK': JCS_YCCK,
-        'YCBCR': JCS_YCbCr,
-        'RGBA': JCS_EXT_RGBA,
-        JCS_UNKNOWN: JCS_UNKNOWN,
-        JCS_GRAYSCALE: JCS_GRAYSCALE,
-        JCS_RGB: JCS_RGB,
-        JCS_YCbCr: JCS_YCbCr,
-        JCS_CMYK: JCS_CMYK,
-        JCS_YCCK: JCS_YCCK,
-        JCS_EXT_RGB: JCS_EXT_RGB,
-        JCS_EXT_RGBX: JCS_EXT_RGBX,
-        JCS_EXT_BGR: JCS_EXT_BGR,
-        JCS_EXT_BGRX: JCS_EXT_BGRX,
-        JCS_EXT_XBGR: JCS_EXT_XBGR,
-        JCS_EXT_XRGB: JCS_EXT_XRGB,
-        JCS_EXT_RGBA: JCS_EXT_RGBA,
-        JCS_EXT_BGRA: JCS_EXT_BGRA,
-        JCS_EXT_ABGR: JCS_EXT_ABGR,
-        JCS_EXT_ARGB: JCS_EXT_ARGB,
-        JCS_RGB565: JCS_RGB565,
-    }.get(colorspace, JCS_UNKNOWN)
+    IF HAVE_LIBJPEG_TURBO:
+        jcs = {
+            None: JCS_UNKNOWN,
+            'UNKNOWN': JCS_UNKNOWN,
+            'GRAY': JCS_GRAYSCALE,
+            'GRAYSCALE': JCS_GRAYSCALE,
+            'MINISWHITE': JCS_GRAYSCALE,
+            'MINISBLACK': JCS_GRAYSCALE,
+            'RGB': JCS_RGB,
+            'CMYK': JCS_CMYK,
+            'YCCK': JCS_YCCK,
+            'YCBCR': JCS_YCbCr,
+            'RGBA': JCS_EXT_RGBA,
+            JCS_UNKNOWN: JCS_UNKNOWN,
+            JCS_GRAYSCALE: JCS_GRAYSCALE,
+            JCS_RGB: JCS_RGB,
+            JCS_YCbCr: JCS_YCbCr,
+            JCS_CMYK: JCS_CMYK,
+            JCS_YCCK: JCS_YCCK,
+            JCS_EXT_RGB: JCS_EXT_RGB,
+            JCS_EXT_RGBX: JCS_EXT_RGBX,
+            JCS_EXT_BGR: JCS_EXT_BGR,
+            JCS_EXT_BGRX: JCS_EXT_BGRX,
+            JCS_EXT_XBGR: JCS_EXT_XBGR,
+            JCS_EXT_XRGB: JCS_EXT_XRGB,
+            JCS_EXT_RGBA: JCS_EXT_RGBA,
+            JCS_EXT_BGRA: JCS_EXT_BGRA,
+            JCS_EXT_ABGR: JCS_EXT_ABGR,
+            JCS_EXT_ARGB: JCS_EXT_ARGB,
+            JCS_RGB565: JCS_RGB565,
+        }
+    ELSE:
+        jcs = {
+            None: JCS_UNKNOWN,
+            'UNKNOWN': JCS_UNKNOWN,
+            'GRAY': JCS_GRAYSCALE,
+            'GRAYSCALE': JCS_GRAYSCALE,
+            'MINISWHITE': JCS_GRAYSCALE,
+            'MINISBLACK': JCS_GRAYSCALE,
+            'RGB': JCS_RGB,
+            'CMYK': JCS_CMYK,
+            'YCCK': JCS_YCCK,
+            'YCBCR': JCS_YCbCr,
+            JCS_UNKNOWN: JCS_UNKNOWN,
+            JCS_GRAYSCALE: JCS_GRAYSCALE,
+            JCS_RGB: JCS_RGB,
+            JCS_YCbCr: JCS_YCbCr,
+            JCS_CMYK: JCS_CMYK,
+            JCS_YCCK: JCS_YCCK,
+        }
+    return jcs.get(colorspace, JCS_UNKNOWN)
 
 
 def _jcs_colorspace_samples(colorspace):
     """Return expected number of samples in colorspace."""
     three = (3,)
     four = (4,)
-    return {
-        JCS_UNKNOWN: (1, 2, 3, 4),
-        JCS_GRAYSCALE: (1,),
-        JCS_RGB: three,
-        JCS_YCbCr: three,
-        JCS_CMYK: four,
-        JCS_YCCK: four,
-        JCS_EXT_RGB: three,
-        JCS_EXT_RGBX: four,
-        JCS_EXT_BGR: three,
-        JCS_EXT_BGRX: four,
-        JCS_EXT_XBGR: four,
-        JCS_EXT_XRGB: four,
-        JCS_EXT_RGBA: four,
-        JCS_EXT_BGRA: four,
-        JCS_EXT_ABGR: four,
-        JCS_EXT_ARGB: four,
-        JCS_RGB565: three,
-    }[colorspace]
+    IF HAVE_LIBJPEG_TURBO:
+        jcs = {
+            JCS_UNKNOWN: (1, 2, 3, 4),
+            JCS_GRAYSCALE: (1,),
+            JCS_RGB: three,
+            JCS_YCbCr: three,
+            JCS_CMYK: four,
+            JCS_YCCK: four,
+            JCS_EXT_RGB: three,
+            JCS_EXT_RGBX: four,
+            JCS_EXT_BGR: three,
+            JCS_EXT_BGRX: four,
+            JCS_EXT_XBGR: four,
+            JCS_EXT_XRGB: four,
+            JCS_EXT_RGBA: four,
+            JCS_EXT_BGRA: four,
+            JCS_EXT_ABGR: four,
+            JCS_EXT_ARGB: four,
+            JCS_RGB565: three,
+        }
+    ELSE:
+        jcs = {
+            JCS_UNKNOWN: (1, 2, 3, 4),
+            JCS_GRAYSCALE: (1,),
+            JCS_RGB: three,
+            JCS_YCbCr: three,
+            JCS_CMYK: four,
+            JCS_YCCK: four,
+        }
+    return jcs[colorspace]
 
 
-cdef bint _check_12bit(numpy.ndarray data, uint16_t upper=4095):
+def _check_12bit(numpy.ndarray data, uint16_t upper=4095):
     """Return if all values are below 2^12."""
     cdef:
         numpy.flatiter srciter
@@ -466,20 +494,20 @@ cdef bint _check_12bit(numpy.ndarray data, uint16_t upper=4095):
         ssize_t srcstride = 0
         ssize_t i
         int axis = -1
-        bint ret = True
+        int ret = 1
 
     srciter = numpy.PyArray_IterAllButAxis(data, &axis)
     srcsize = data.shape[axis]
     srcstride = data.strides[axis]
 
     with nogil:
-        while ret and numpy.PyArray_ITER_NOTDONE(srciter):
+        while numpy.PyArray_ITER_NOTDONE(srciter) and ret != 0:
             srcptr = <uint8_t*> numpy.PyArray_ITER_DATA(srciter)
             for i in range(srcsize):
                 if (<uint16_t*> srcptr)[0] > upper:
-                    ret = False
+                    ret = 0
                     break
                 srcptr += srcstride
             numpy.PyArray_ITER_NEXT(srciter)
 
-    return ret
+    return bool(ret)

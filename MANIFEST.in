@@ -23,7 +23,6 @@ include tests/*.bin
 include tests/*.npy
 include tests/*.zfp
 include tests/*.png
-include tests/*.icc
 include tests/*.jpg
 include tests/*.jxr
 include tests/*.j2k
@@ -31,13 +30,9 @@ include tests/*.jp2
 include tests/*.jls
 include tests/*.jxl
 include tests/*.tif
-include tests/*.hdr
-include tests/*.apng
-include tests/*.avif
 include tests/*.webp
 include tests/*.br
 include tests/tiff/*.*
-include tests/lerc/testData/*.*
 include tests/libaec/121B2TestData/*.txt
 include tests/libaec/121B2TestData/AllOptions/*.*
 
@@ -45,9 +40,6 @@ exclude tests/tiff/gray.movie.u1.tif
 exclude tests/libaec/121B2TestData/ExtendedParameters/*.*
 exclude tests/33792x79872.jpg
 exclude tests/jpegxr.czi
-exclude tests/jetraw.bin
-
-exclude build_utils/*
 
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]

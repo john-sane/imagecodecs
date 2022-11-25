@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2018-2022, Christoph Gohlke
+# Copyright (c) 2018-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -92,22 +92,13 @@ cdef object _create_output(object out, ssize_t size, const char* string=NULL):
     Return NULL on failure.
 
     """
-    cdef:
-        object obj
-
     IF IS_PYPY:
         # PyPy can not modify the content of bytes
         pass
     ELSE:
         if out == bytes or PyBytes_Check(out):
-            obj = PyBytes_FromStringAndSize(string, size)
-            if obj is None:
-                raise MemoryError('PyBytes_FromStringAndSize failed')
-            return obj
-    obj = PyByteArray_FromStringAndSize(string, size)
-    if obj is None:
-        raise MemoryError('PyByteArray_FromStringAndSize failed')
-    return obj
+            return PyBytes_FromStringAndSize(string, size)
+    return PyByteArray_FromStringAndSize(string, size)
 
 
 cdef object _return_output(object out, ssize_t size, ssize_t used, outgiven):
@@ -152,16 +143,10 @@ cdef _create_array(out, shape, dtype, strides=None, zero=False):
         else:
             out = numpy.empty(shape, dtype)
     elif isinstance(out, numpy.ndarray):
+        if out.shape != shape:
+            raise ValueError(f'invalid output shape {out.shape!r} {shape!r}')
         if out.itemsize != numpy.dtype(dtype).itemsize:
             raise ValueError('invalid output dtype')
-        if (
-            out.shape != shape
-            and (
-                tuple(int(i) for i in out.shape if i != 1)
-                != tuple(int(i) for i in shape if i != 1)
-            )
-        ):
-            raise ValueError(f'invalid output shape {out.shape!r} {shape!r}')
         if strides is not None:
             for i, j in zip(strides, out.strides):
                 if i is not None and i != j:
@@ -268,23 +253,28 @@ cdef const uint8_t[::1] _inplace_input(data):
 cdef _default_value(value, default, smallest, largest):
     """Return default value or value in range."""
     if value is None:
-        return default
-    if largest is not None and value >= largest:
-        return largest
-    if smallest is not None and value <= smallest:
-        return smallest
+        value = default
+    if largest is not None:
+        value = min(value, largest)
+    if smallest is not None:
+        value = max(value, smallest)
     return value
 
 
-cdef size_t _default_threads(numthreads):
-    """Return default number of threads or value in range."""
-    if numthreads is None:
-        return 1
-    if numthreads <= 0:
-        return 0
-    if numthreads >= 32:
-        return 32
-    return numthreads
+def _set_attributes(cls=None, name=None, **kwargs):
+    """Add kwargs to the specified class or the global symbol table.
+
+    This is a hack to add constants defined in C to module and class
+    namespaces.
+
+    """
+    if cls is None:
+        globals().update(**kwargs)
+    else:
+        for name, value in kwargs.items():
+            setattr(cls, name, value)
+        if name is not None:
+            globals()[name] = cls
 
 
 def _log_warning(msg, *args, **kwargs):

@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2019-2022, Christoph Gohlke
+# Copyright (c) 2019-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """JPEG LS codec for the imagecodecs package."""
 
-__version__ = '2022.2.22'
+__version__ = '2021.1.28'
 
 include '_shared.pxi'
 
@@ -77,12 +77,12 @@ def jpegls_check(data):
     """Return True if data likely contains a JPEG LS image."""
 
 
-def jpegls_encode(data, level=None, numthreads=None, out=None):
+def jpegls_encode(data, level=None, out=None):
     """Return JPEG LS image from numpy array.
 
     """
     cdef:
-        numpy.ndarray src = numpy.ascontiguousarray(data)
+        numpy.ndarray src = data
         const uint8_t[::1] dst  # must be const to write to bytes
         ssize_t dstsize
         ssize_t srcsize = src.nbytes
@@ -96,12 +96,16 @@ def jpegls_encode(data, level=None, numthreads=None, out=None):
         size_t byteswritten
         size_t size_in_bytes
 
+    if data is out:
+        raise ValueError('cannot encode in-place')
+
     if not (
-        src.dtype in (numpy.uint8, numpy.uint16)
-        and src.ndim in (2, 3)
-        and srcsize < 2 ** 32
+        src.dtype in (numpy.uint8, numpy.uint16) and
+        src.ndim in (2, 3) and
+        srcsize < 2 ** 32 and
+        numpy.PyArray_ISCONTIGUOUS(src)
     ):
-        raise ValueError('invalid data shape or dtype')
+        raise ValueError('invalid input shape, strides, or dtype')
 
     out, dstsize, outgiven, outtype = _parse_output(out)
 
@@ -248,7 +252,7 @@ def jpegls_encode(data, level=None, numthreads=None, out=None):
     return _return_output(out, dstsize, byteswritten, outgiven)
 
 
-def jpegls_decode(data, index=None, numthreads=None, out=None):
+def jpegls_decode(data, index=None, out=None):
     """Return numpy array from JPEG LS image.
 
     """

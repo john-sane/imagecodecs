@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2019-2022, Christoph Gohlke
+# Copyright (c) 2019-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """Zopfli codec for the imagecodecs package."""
 
-__version__ = '2022.2.22'
+__version__ = '2020.12.22'
 
 include '_shared.pxi'
 
@@ -47,10 +47,9 @@ from zopfli cimport *
 class ZOPFLI:
     """Zopfli Constants."""
 
-    class FORMAT(enum.IntEnum):
-        GZIP = ZOPFLI_FORMAT_GZIP
-        ZLIB = ZOPFLI_FORMAT_ZLIB
-        DEFLATE = ZOPFLI_FORMAT_DEFLATE
+    FORMAT_GZIP = ZOPFLI_FORMAT_GZIP
+    FORMAT_ZLIB = ZOPFLI_FORMAT_ZLIB
+    FORMAT_DEFLATE = ZOPFLI_FORMAT_DEFLATE
 
 
 class ZopfliError(RuntimeError):
@@ -59,7 +58,6 @@ class ZopfliError(RuntimeError):
 
 def zopfli_version():
     """Return Zopfli library version string."""
-    # TODO: use version from header when available
     return 'zopfli 1.0.3'
 
 
@@ -67,7 +65,7 @@ def zopfli_version():
 # zopfli_decode = zlib_decode
 
 
-def zopfli_encode(data, level=None, numthreads=None, out=None, **kwargs):
+def zopfli_encode(data, level=None, out=None, **kwargs):
     """Compress Zlib format using Zopfli.
 
     """

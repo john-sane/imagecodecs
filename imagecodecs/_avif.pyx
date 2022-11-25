@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2020-2022, Christoph Gohlke
+# Copyright (c) 2020-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """AVIF codec for the imagecodecs package."""
 
-__version__ = '2022.7.27'
+__version__ = '2021.1.28'
 
 include '_shared.pxi'
 
@@ -47,28 +47,21 @@ from libavif cimport *
 class AVIF:
     """AVIF Constants."""
 
-    class PIXEL_FORMAT(enum.IntEnum):
-        YUV444 = AVIF_PIXEL_FORMAT_YUV444
-        YUV422 = AVIF_PIXEL_FORMAT_YUV422
-        YUV420 = AVIF_PIXEL_FORMAT_YUV420
-        YUV400 = AVIF_PIXEL_FORMAT_YUV400
-
-    class QUANTIZER(enum.IntEnum):
-        LOSSLESS = AVIF_QUANTIZER_LOSSLESS
-        BEST_QUALITY = AVIF_QUANTIZER_BEST_QUALITY
-        WORST_QUALITY = AVIF_QUANTIZER_WORST_QUALITY
-
-    class SPEED(enum.IntEnum):
-        DEFAULT = AVIF_SPEED_DEFAULT
-        SLOWEST = AVIF_SPEED_SLOWEST
-        FASTEST = AVIF_SPEED_FASTEST
-
-    class CHROMA_UPSAMPLING(enum.IntEnum):
-        AUTOMATIC = AVIF_CHROMA_UPSAMPLING_AUTOMATIC
-        FASTEST = AVIF_CHROMA_UPSAMPLING_FASTEST
-        BEST_QUALITY = AVIF_CHROMA_UPSAMPLING_BEST_QUALITY
-        NEAREST = AVIF_CHROMA_UPSAMPLING_NEAREST
-        BILINEAR = AVIF_CHROMA_UPSAMPLING_BILINEAR
+    PIXEL_FORMAT_YUV444 = AVIF_PIXEL_FORMAT_YUV444
+    PIXEL_FORMAT_YUV422 = AVIF_PIXEL_FORMAT_YUV422
+    PIXEL_FORMAT_YUV420 = AVIF_PIXEL_FORMAT_YUV420
+    PIXEL_FORMAT_YUV400 = AVIF_PIXEL_FORMAT_YUV400
+    QUANTIZER_LOSSLESS = AVIF_QUANTIZER_LOSSLESS
+    QUANTIZER_BEST_QUALITY = AVIF_QUANTIZER_BEST_QUALITY
+    QUANTIZER_WORST_QUALITY = AVIF_QUANTIZER_WORST_QUALITY
+    SPEED_DEFAULT = AVIF_SPEED_DEFAULT
+    SPEED_SLOWEST = AVIF_SPEED_SLOWEST
+    SPEED_FASTEST = AVIF_SPEED_FASTEST
+    CHROMA_UPSAMPLING_AUTOMATIC = AVIF_CHROMA_UPSAMPLING_AUTOMATIC
+    CHROMA_UPSAMPLING_FASTEST = AVIF_CHROMA_UPSAMPLING_FASTEST
+    CHROMA_UPSAMPLING_BEST_QUALITY = AVIF_CHROMA_UPSAMPLING_BEST_QUALITY
+    CHROMA_UPSAMPLING_NEAREST = AVIF_CHROMA_UPSAMPLING_NEAREST
+    CHROMA_UPSAMPLING_BILINEAR = AVIF_CHROMA_UPSAMPLING_BILINEAR
 
 
 class AvifError(RuntimeError):
@@ -117,14 +110,14 @@ def avif_encode(
     tilelog2=None,
     bitspersample=None,
     pixelformat=None,
-    numthreads=None,
+    maxthreads=None,
     out=None
 ):
     """Return AVIF image from numpy array.
 
     """
     cdef:
-        numpy.ndarray src = numpy.ascontiguousarray(data)
+        numpy.ndarray src = data
         const uint8_t[::1] dst  # must be const to write to bytes
         ssize_t dstsize, size
         ssize_t itemsize = data.dtype.itemsize
@@ -135,7 +128,7 @@ def avif_encode(
         int duration = 1
         int timescale = 1
         int keyframeinterval = 0
-        int maxthreads = <int> _default_threads(numthreads)
+        int maxthreads_ = 1
         int imagecount, width, height, samples, depth
         ssize_t i, j, k, srcindex
         size_t rawsize
@@ -152,9 +145,12 @@ def avif_encode(
         avifAddImageFlags flags = AVIF_ADD_IMAGE_FLAG_NONE
         avifResult res
 
+    if data is out:
+        raise ValueError('cannot encode in-place')
+
     if not (
         src.dtype in (numpy.uint8, numpy.uint16)
-        # and numpy.PyArray_ISCONTIGUOUS(src)
+        and numpy.PyArray_ISCONTIGUOUS(src)
         and src.ndim in (2, 3, 4)
         and src.shape[0] < 2 ** 32
         and src.shape[1] < 2 ** 32
@@ -190,8 +186,8 @@ def avif_encode(
     hasalpha = samples in (2, 4)
 
     if monochrome:
-        raise NotImplementedError('cannot encode monochome images')
         # TODO: check status of libavif/aom monochome support
+        raise NotImplementedError('cannot encode monochome images')
 
     if bitspersample is None:
         depth = <int> itemsize * 8
@@ -226,6 +222,9 @@ def avif_encode(
     elif pixelformat is not None:
         yuvformat = avif_pixelformat(pixelformat)
 
+    if maxthreads is not None:
+        maxthreads_ = maxthreads
+
     try:
         with nogil:
             raw.data = NULL
@@ -235,7 +234,7 @@ def avif_encode(
             if encoder == NULL:
                 raise AvifError('avifEncoderCreate', 'NULL')
 
-            encoder.maxThreads = maxthreads
+            encoder.maxThreads = maxthreads_
             encoder.minQuantizer = quantizer
             encoder.maxQuantizer = quantizer
             encoder.minQuantizerAlpha = AVIF_QUANTIZER_LOSSLESS
@@ -272,7 +271,6 @@ def avif_encode(
                 if rgb.format != AVIF_RGB_FORMAT_RGBA:
                     raise RuntimeError('rgb.format != AVIF_RGB_FORMAT_RGBA')
                 srcptr = <uint8_t *> src.data
-                size = 0
             else:
                 rgb.format = (
                     AVIF_RGB_FORMAT_RGBA if hasalpha else AVIF_RGB_FORMAT_RGB
@@ -289,14 +287,14 @@ def avif_encode(
             for i in range(imagecount):
 
                 if monochrome:
-                    # TODO: do not copy array to avifRGBImage first
+                    # TODO: do not to copy array to avifRGBImage first
                     dstptr = <uint8_t *> rgb.pixels
                     if itemsize == 1:
                         # uint8
                         if hasalpha:
-                            for j in range(<ssize_t> rgb.height):
-                                k = j * <ssize_t> rgb.rowBytes
-                                while k < (j + 1) * <ssize_t> rgb.rowBytes:
+                            for j in range(rgb.height):
+                                k = j * rgb.rowBytes
+                                while k < (j + 1) * rgb.rowBytes:
                                     temp = srcptr[srcindex]
                                     dstptr[k] = temp
                                     dstptr[k + 1] = temp
@@ -306,9 +304,9 @@ def avif_encode(
                                     srcindex += 2
                         else:
                             rgb.ignoreAlpha = AVIF_TRUE
-                            for j in range(<ssize_t> rgb.height):
-                                k = j * <ssize_t> rgb.rowBytes
-                                while k < (j + 1) * <ssize_t> rgb.rowBytes:
+                            for j in range(rgb.height):
+                                k = j * rgb.rowBytes
+                                while k < (j + 1) * rgb.rowBytes:
                                     temp = srcptr[srcindex]
                                     dstptr[k] = temp
                                     dstptr[k + 1] = temp
@@ -319,9 +317,9 @@ def avif_encode(
                     else:
                         # uint16
                         if hasalpha:
-                            for j in range(<ssize_t> rgb.height):
-                                k = j * <ssize_t> rgb.rowBytes
-                                while k < (j + 1) * <ssize_t> rgb.rowBytes:
+                            for j in range(rgb.height):
+                                k = j * rgb.rowBytes
+                                while k < (j + 1) * rgb.rowBytes:
                                     temp = srcptr[srcindex]
                                     dstptr[k] = temp
                                     dstptr[k + 2] = temp
@@ -336,9 +334,9 @@ def avif_encode(
                                     srcindex += 4
                         else:
                             rgb.ignoreAlpha = AVIF_TRUE
-                            for j in range(<ssize_t> rgb.height):
-                                k = j * <ssize_t> rgb.rowBytes
-                                while k < (j + 1) * <ssize_t> rgb.rowBytes:
+                            for j in range(rgb.height):
+                                k = j * rgb.rowBytes
+                                while k < (j + 1) * rgb.rowBytes:
                                     temp = srcptr[srcindex]
                                     dstptr[k] = temp
                                     dstptr[k + 2] = temp
@@ -400,7 +398,7 @@ def avif_encode(
     return _return_output(out, dstsize, rawsize, outgiven)
 
 
-def avif_decode(data, index=None, numthreads=None, out=None):
+def avif_decode(data, index=None, out=None):
     """Decode AVIF image to numpy array.
 
     """
@@ -409,7 +407,7 @@ def avif_decode(data, index=None, numthreads=None, out=None):
         const uint8_t[::1] src = data
         ssize_t srcsize = src.size
         ssize_t frameindex = -1 if index is None else index
-        ssize_t samples, size, itemsize, i, j, k, dstindex, imagecount
+        ssize_t samples, size, itemsize, i, j, k, dstindex
         bint monochrome = 0  # must be initialized
         bint hasalpha = 0
         uint8_t* dstptr = NULL
@@ -427,9 +425,6 @@ def avif_decode(data, index=None, numthreads=None, out=None):
             decoder = avifDecoderCreate()
             if decoder == NULL:
                 raise AvifError('avifDecoderCreate', 'NULL')
-
-            # required to read AVIF files created by ImageMagick
-            decoder.strictFlags = AVIF_STRICT_DISABLED
 
             res = avifDecoderSetSource(decoder, AVIF_DECODER_SOURCE_AUTO)
             if res != AVIF_RESULT_OK:
@@ -452,12 +447,11 @@ def avif_decode(data, index=None, numthreads=None, out=None):
             imagecount = decoder.imageCount
 
             if frameindex >= imagecount:
-                raise IndexError(
-                    f'index {frameindex} out of bounds {imagecount}'
-                )
+                raise IndexError('image index out of range')
 
-            if imagecount == 1:
-                frameindex = 0
+            if frameindex >= 0 or imagecount == 1:
+                if imagecount == 1:
+                    frameindex = 0
 
             res = avifDecoderNthImage(
                 decoder, <uint32_t> (frameindex if frameindex > 0 else 0)
@@ -527,9 +521,9 @@ def avif_decode(data, index=None, numthreads=None, out=None):
                     if itemsize == 1:
                         # uint8
                         if hasalpha:
-                            for j in range(<ssize_t> rgb.height):
-                                k = j * <ssize_t> rgb.rowBytes
-                                while k < (j + 1) * <ssize_t> rgb.rowBytes:
+                            for j in range(rgb.height):
+                                k = j * rgb.rowBytes
+                                while k < (j + 1) * rgb.rowBytes:
                                     # red
                                     dstptr[dstindex] = srcptr[k]
                                     dstindex += 1
@@ -539,18 +533,18 @@ def avif_decode(data, index=None, numthreads=None, out=None):
                                     dstindex += 1
                                     k += 1
                         else:
-                            for j in range(<ssize_t> rgb.height):
-                                k = j * <ssize_t> rgb.rowBytes
-                                while k < (j + 1) * <ssize_t> rgb.rowBytes:
+                            for j in range(rgb.height):
+                                k = j * rgb.rowBytes
+                                while k < (j + 1) * rgb.rowBytes:
                                     dstptr[dstindex] = srcptr[k]
                                     dstindex += 1
                                     k += 4  # requires RGBA buffer
                     else:
                         # uint16
                         if hasalpha:
-                            for j in range(<ssize_t> rgb.height):
-                                k = j * <ssize_t> rgb.rowBytes
-                                while k < (j + 1) * <ssize_t> rgb.rowBytes:
+                            for j in range(rgb.height):
+                                k = j * rgb.rowBytes
+                                while k < (j + 1) * rgb.rowBytes:
                                     # red
                                     dstptr[dstindex] = srcptr[k]
                                     dstindex += 1
@@ -566,9 +560,9 @@ def avif_decode(data, index=None, numthreads=None, out=None):
                                     dstindex += 1
                                     k += 1
                         else:
-                            for j in range(<ssize_t> rgb.height):
-                                k = j * <ssize_t> rgb.rowBytes
-                                while k < (j + 1) * <ssize_t> rgb.rowBytes:
+                            for j in range(rgb.height):
+                                k = j * rgb.rowBytes
+                                while k < (j + 1) * rgb.rowBytes:
                                     dstptr[dstindex] = srcptr[k]
                                     dstindex += 1
                                     k += 1

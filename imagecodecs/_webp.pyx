@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2018-2022, Christoph Gohlke
+# Copyright (c) 2018-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """WebP codec for the imagecodecs package."""
 
-__version__ = '2022.7.31'
+__version__ = '2021.4.28'
 
 include '_shared.pxi'
 
@@ -52,38 +52,17 @@ class WebpError(RuntimeError):
     """WebP Exceptions."""
 
     def __init__(self, func, err):
-        if func == 'WebPEncode':
-            errors = {
-                0: 'False',
-                VP8_ENC_ERROR_OUT_OF_MEMORY: 'VP8_ENC_ERROR_OUT_OF_MEMORY',
-                VP8_ENC_ERROR_BITSTREAM_OUT_OF_MEMORY:
-                    'VP8_ENC_ERROR_BITSTREAM_OUT_OF_MEMORY',
-                VP8_ENC_ERROR_NULL_PARAMETER: 'VP8_ENC_ERROR_NULL_PARAMETER',
-                VP8_ENC_ERROR_INVALID_CONFIGURATION:
-                    'VP8_ENC_ERROR_INVALID_CONFIGURATION',
-                VP8_ENC_ERROR_BAD_DIMENSION: 'VP8_ENC_ERROR_BAD_DIMENSION',
-                VP8_ENC_ERROR_PARTITION0_OVERFLOW:
-                    'VP8_ENC_ERROR_PARTITION0_OVERFLOW',
-                VP8_ENC_ERROR_PARTITION_OVERFLOW:
-                    'VP8_ENC_ERROR_PARTITION_OVERFLOW',
-                VP8_ENC_ERROR_BAD_WRITE: 'VP8_ENC_ERROR_BAD_WRITE',
-                VP8_ENC_ERROR_FILE_TOO_BIG: 'VP8_ENC_ERROR_FILE_TOO_BIG',
-                VP8_ENC_ERROR_USER_ABORT: 'VP8_ENC_ERROR_USER_ABORT',
-                VP8_ENC_ERROR_LAST: 'VP8_ENC_ERROR_LAST',
-            }
-        else:
-            errors = {
-                0: 'NULL',
-                VP8_STATUS_OUT_OF_MEMORY: 'VP8_STATUS_OUT_OF_MEMORY',
-                VP8_STATUS_INVALID_PARAM: 'VP8_STATUS_INVALID_PARAM',
-                VP8_STATUS_BITSTREAM_ERROR: 'VP8_STATUS_BITSTREAM_ERROR',
-                VP8_STATUS_UNSUPPORTED_FEATURE:
-                    'VP8_STATUS_UNSUPPORTED_FEATURE',
-                VP8_STATUS_SUSPENDED: 'VP8_STATUS_SUSPENDED',
-                VP8_STATUS_USER_ABORT: 'VP8_STATUS_USER_ABORT',
-                VP8_STATUS_NOT_ENOUGH_DATA: 'VP8_STATUS_NOT_ENOUGH_DATA',
-            }
-        msg = errors.get(err, f'unknown error {err!r}')
+        msg = {
+            None: 'NULL',
+            VP8_STATUS_OK: 'VP8_STATUS_OK',
+            VP8_STATUS_OUT_OF_MEMORY: 'VP8_STATUS_OUT_OF_MEMORY',
+            VP8_STATUS_INVALID_PARAM: 'VP8_STATUS_INVALID_PARAM',
+            VP8_STATUS_BITSTREAM_ERROR: 'VP8_STATUS_BITSTREAM_ERROR',
+            VP8_STATUS_UNSUPPORTED_FEATURE: 'VP8_STATUS_UNSUPPORTED_FEATURE',
+            VP8_STATUS_SUSPENDED: 'VP8_STATUS_SUSPENDED',
+            VP8_STATUS_USER_ABORT: 'VP8_STATUS_USER_ABORT',
+            VP8_STATUS_NOT_ENOUGH_DATA: 'VP8_STATUS_NOT_ENOUGH_DATA',
+        }.get(err, f'unknown error {err!r}')
         msg = f'{func} returned {msg}'
         super().__init__(msg)
 
@@ -104,29 +83,23 @@ def webp_check(const uint8_t[::1] data):
     return sig[:4] == b'RIFF' and sig[8:12] == b'WEBP'
 
 
-def webp_encode(
-    data, level=None, lossless=None, method=None, numthreads=None, out=None
-):
+def webp_encode(data, level=None, out=None):
     """Return WebP image from numpy array.
-
-    Libwebp drops entire alpha channel if all alpha values are 255 (opaque).
 
     """
     cdef:
-        numpy.ndarray src = numpy.asarray(data)
+        numpy.ndarray src = data
         const uint8_t[::1] dst  # must be const to write to bytes
-        uint8_t* output = NULL
-        size_t output_size = 0
+        uint8_t* output
         ssize_t dstsize
+        size_t ret = 0
         int width, height, stride
         float quality_factor = _default_value(level, 75.0, -1.0, 100.0)
-        int effort_level = _default_value(method, 4, 0, 6)
-        int thread_level = 1 if numthreads else 0
-        int lossless_
+        int lossless = level is None or quality_factor < 0.0
         int rgba
-        WebPConfig config
-        WebPPicture picture
-        WebPMemoryWriter writer
+
+    if data is out:
+        raise ValueError('cannot encode in-place')
 
     if not (
         src.ndim == 3
@@ -138,93 +111,74 @@ def webp_encode(
         and src.strides[0] >= src.strides[1] * src.strides[2]
         and src.dtype == numpy.uint8
     ):
-        raise ValueError('invalid data shape, strides, or dtype')
+        raise ValueError('invalid input shape, strides, or dtype')
 
     height = <int> src.shape[0]
     width = <int> src.shape[1]
     stride = <int> src.strides[0]
     rgba = <int> src.shape[2] == 4
 
-    if lossless is None or lossless or quality_factor < 0.0:
-        lossless_ = 1
-    else:
-        lossless_ = 0
-
-    try:
-        with nogil:
-
-            if quality_factor < 0.0:
-                quality_factor = 75.0
-
-            if WebPPictureInit(&picture) == 0:
-                raise WebpError('WebPPictureInit', 0)
-
-            picture.use_argb = lossless_
-            picture.width = width
-            picture.height = height
-            picture.writer = WebPMemoryWrite
-            picture.custom_ptr = &writer
-
-            WebPMemoryWriterInit(&writer)
-
-            if WebPConfigPreset(
-                &config, WEBP_PRESET_DEFAULT, quality_factor
-            ) == 0:
-                raise WebpError('WebPConfigPreset', 0)
-
-            config.thread_level = thread_level
-            config.method = effort_level  # 0=fast, 6=slower-better
-            if lossless_:
-                config.lossless = 1
-                config.exact = 1  # preserve RGB values under transparent area
-
-            # if WebPValidateConfig(&config) == 0:
-            #     raise WebpError('WebPValidateConfig', 0)
-
+    with nogil:
+        if lossless:
             if rgba:
-                # TODO: do not remove all-opaque alpha channel
-                if WebPPictureImportRGBA(
-                    &picture, <const uint8_t*> src.data, stride
-                ) == 0:
-                    raise WebpError('WebPPictureImportRGBA', 0)
+                ret = WebPEncodeLosslessRGBA(
+                    <const uint8_t*> src.data,
+                    width,
+                    height,
+                    stride,
+                    &output
+                )
             else:
-                if WebPPictureImportRGB(
-                    &picture, <const uint8_t*> src.data, stride
-                ) == 0:
-                    raise WebpError('WebPPictureImportRGB', 0)
+                ret = WebPEncodeLosslessRGB(
+                    <const uint8_t*> src.data,
+                    width,
+                    height,
+                    stride,
+                    &output
+                )
+        elif rgba:
+            ret = WebPEncodeRGBA(
+                <const uint8_t*> src.data,
+                width,
+                height,
+                stride,
+                quality_factor,
+                &output
+            )
+        else:
+            ret = WebPEncodeRGB(
+                <const uint8_t*> src.data,
+                width,
+                height,
+                stride,
+                quality_factor,
+                &output
+            )
 
-            if WebPEncode(&config, &picture) == 0:
-                if picture.error_code != VP8_ENC_OK:
-                    raise WebpError('WebPEncode', picture.error_code)
-                raise WebpError('WebPEncode', 0)
+    if ret <= 0:
+        raise WebpError('WebPEncode', ret)
 
-            output = writer.mem
-            output_size = <ssize_t>writer.size
+    out, dstsize, outgiven, outtype = _parse_output(out)
 
-        out, dstsize, outgiven, outtype = _parse_output(out)
+    if out is None:
+        if dstsize < 0:
+            dstsize = ret
+        out = _create_output(outtype, dstsize)
 
-        if out is None:
-            if dstsize < 0:
-                dstsize = output_size
-            out = _create_output(outtype, dstsize)
+    dst = out
+    dstsize = dst.size
+    if <size_t> dstsize < ret:
+        raise RuntimeError('output too small')
 
-        dst = out
-        dstsize = dst.size
-        if <size_t> dstsize < output_size:
-            raise RuntimeError('output too small')
-
-        with nogil:
-            memcpy(<void*> &dst[0], <const void*> output, output_size)
-
-    finally:
-        WebPMemoryWriterClear(&writer)
-        WebPPictureFree(&picture)
+    with nogil:
+        memcpy(<void*> &dst[0], <const void*> output, ret)
+        WebPFree(<void*> output)
 
     del dst
-    return _return_output(out, dstsize, output_size, outgiven)
+    return _return_output(out, dstsize, ret, outgiven)
 
 
-def webp_decode(data, index=None, hasalpha=None, numthreads=None, out=None):
+def webp_decode(data, index=None, out=None):
     """Decode WebP image to numpy array.
 
     """
@@ -238,7 +192,6 @@ def webp_decode(data, index=None, hasalpha=None, numthreads=None, out=None):
         WebPBitstreamFeatures features
         int ret = VP8_STATUS_OK
         uint8_t* pout
-        bint has_alpha
 
     if data is out:
         raise ValueError('cannot decode in-place')
@@ -249,11 +202,9 @@ def webp_decode(data, index=None, hasalpha=None, numthreads=None, out=None):
 
     # TODO: support features.has_animation
 
-    if (features.has_alpha and hasalpha is None) or hasalpha:
-        has_alpha = True
+    if features.has_alpha:
         shape = features.height, features.width, 4
     else:
-        has_alpha = False
         shape = features.height, features.width, 3
 
     out = _create_array(out, shape, numpy.uint8, strides=(None, shape[2], 1))
@@ -262,7 +213,7 @@ def webp_decode(data, index=None, hasalpha=None, numthreads=None, out=None):
     output_stride = <int> dst.strides[0]
 
     with nogil:
-        if has_alpha:
+        if features.has_alpha:
             pout = WebPDecodeRGBAInto(
                 &src[0],
                 <size_t> srcsize,
@@ -270,8 +221,6 @@ def webp_decode(data, index=None, hasalpha=None, numthreads=None, out=None):
                 <size_t> dstsize,
                 output_stride
             )
-            if pout == NULL:
-                raise WebpError('WebPDecodeRGBAInto', 0)
         else:
             pout = WebPDecodeRGBInto(
                 &src[0],
@@ -280,7 +229,7 @@ def webp_decode(data, index=None, hasalpha=None, numthreads=None, out=None):
                 <size_t> dstsize,
                 output_stride
             )
-            if pout == NULL:
-                raise WebpError('WebPDecodeRGBInto', 0)
+    if pout == NULL:
+        raise WebpError('WebPDecodeRGBAInto', None)
 
     return out

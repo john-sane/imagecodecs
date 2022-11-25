@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2018-2022, Christoph Gohlke
+# Copyright (c) 2018-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """JPEG 8-bit codec for the imagecodecs package."""
 
-__version__ = '2022.8.8'
+__version__ = '2021.4.28'
 
 include '_shared.pxi'
 
@@ -56,25 +56,24 @@ from libc.setjmp cimport setjmp, longjmp, jmp_buf
 class JPEG8:
     """JPEG 8-bit Constants."""
 
-    class CS(enum.IntEnum):
-        UNKNOWN = JCS_UNKNOWN
-        GRAYSCALE = JCS_GRAYSCALE
-        RGB = JCS_RGB
-        YCbCr = JCS_YCbCr
-        CMYK = JCS_CMYK
-        YCCK = JCS_YCCK
-        IF HAVE_LIBJPEG_TURBO:
-            EXT_RGB = JCS_EXT_RGB
-            EXT_RGBX = JCS_EXT_RGBX
-            EXT_BGR = JCS_EXT_BGR
-            EXT_BGRX = JCS_EXT_BGRX
-            EXT_XBGR = JCS_EXT_XBGR
-            EXT_XRGB = JCS_EXT_XRGB
-            EXT_RGBA = JCS_EXT_RGBA
-            EXT_BGRA = JCS_EXT_BGRA
-            EXT_ABGR = JCS_EXT_ABGR
-            EXT_ARGB = JCS_EXT_ARGB
-            RGB565 = JCS_RGB565
+    CS_UNKNOWN = JCS_UNKNOWN
+    CS_GRAYSCALE = JCS_GRAYSCALE
+    CS_RGB = JCS_RGB
+    CS_YCbCr = JCS_YCbCr
+    CS_CMYK = JCS_CMYK
+    CS_YCCK = JCS_YCCK
+    IF HAVE_LIBJPEG_TURBO:
+        CS_EXT_RGB = JCS_EXT_RGB
+        CS_EXT_RGBX = JCS_EXT_RGBX
+        CS_EXT_BGR = JCS_EXT_BGR
+        CS_EXT_BGRX = JCS_EXT_BGRX
+        CS_EXT_XBGR = JCS_EXT_XBGR
+        CS_EXT_XRGB = JCS_EXT_XRGB
+        CS_EXT_RGBA = JCS_EXT_RGBA
+        CS_EXT_BGRA = JCS_EXT_BGRA
+        CS_EXT_ABGR = JCS_EXT_ABGR
+        CS_EXT_ARGB = JCS_EXT_ARGB
+        CS_RGB565 = JCS_RGB565
 
 
 class Jpeg8Error(RuntimeError):
@@ -112,14 +111,13 @@ def jpeg8_encode(
     subsampling=None,
     optimize=None,
     smoothing=None,
-    numthreads=None,
     out=None
 ):
     """Return JPEG 8-bit image from numpy array.
 
     """
     cdef:
-        numpy.ndarray src = numpy.asarray(data)
+        numpy.ndarray src = data
         const uint8_t[::1] dst  # must be const to write to bytes
         ssize_t dstsize
         ssize_t srcsize = src.nbytes
@@ -139,6 +137,9 @@ def jpeg8_encode(
         int smoothing_factor = _default_value(smoothing, -1, 0, 100)
         int optimize_coding = -1 if optimize is None else 1 if optimize else 0
 
+    if data is out:
+        raise ValueError('cannot encode in-place')
+
     if not (
         src.dtype == numpy.uint8
         and src.ndim in (2, 3)
@@ -147,32 +148,26 @@ def jpeg8_encode(
         and src.strides[src.ndim-1] == src.itemsize
         and (src.ndim == 2 or src.strides[1] == samples * src.itemsize)
     ):
-        raise ValueError('invalid data shape, strides, or dtype')
+        raise ValueError('invalid input shape, strides, or dtype')
 
-    if colorspace is not None:
+    if colorspace is None:
+        if samples == 1:
+            in_color_space = JCS_GRAYSCALE
+        elif samples == 3:
+            in_color_space = JCS_RGB
+        # elif samples == 4:
+        #     in_color_space = JCS_EXT_RGBA
+        #     in_color_space = JCS_CMYK
+        else:
+            # libjpeg-turbo does not currently support alpha channels.
+            # JCS_UNKNOWN seems to preserve the 4th channel.
+            in_color_space = JCS_UNKNOWN
+    else:
         in_color_space = _jcs_colorspace(colorspace)
         if samples not in _jcs_colorspace_samples(in_color_space):
-            raise ValueError('invalid data shape')
-    elif samples == 1:
-        in_color_space = JCS_GRAYSCALE
-    elif samples == 3:
-        in_color_space = JCS_RGB
-    # elif samples == 4:
-    #     in_color_space = JCS_EXT_RGBA
-    #     in_color_space = JCS_CMYK
-    else:
-        # libjpeg-turbo does not currently support alpha channels.
-        # JCS_UNKNOWN seems to preserve the 4th channel.
-        in_color_space = JCS_UNKNOWN
+            raise ValueError('invalid input shape')
 
-    if in_color_space == JCS_GRAYSCALE:
-        jpeg_color_space = JCS_GRAYSCALE
-    elif outcolorspace is not None:
-        jpeg_color_space = _jcs_colorspace(outcolorspace)
-    elif in_color_space == JCS_RGB or in_color_space == JCS_YCbCr:
-        jpeg_color_space = JCS_YCbCr
-    else:
-        jpeg_color_space = JCS_UNKNOWN
+    jpeg_color_space = _jcs_colorspace(outcolorspace)
 
     if jpeg_color_space == JCS_YCbCr and subsampling is not None:
         if subsampling in ('444', (1, 1)):
@@ -224,14 +219,10 @@ def jpeg8_encode(
 
         if in_color_space != JCS_UNKNOWN:
             cinfo.in_color_space = in_color_space
+        if jpeg_color_space != JCS_UNKNOWN:
+            cinfo.jpeg_color_space = jpeg_color_space
 
         jpeg_set_defaults(&cinfo)
-
-        IF HAVE_LIBJPEG_TURBO:
-            jpeg_set_colorspace(&cinfo, jpeg_color_space)
-        ELSE:
-            if jpeg_color_space != JCS_UNKNOWN:
-                cinfo.jpeg_color_space = jpeg_color_space
         jpeg_mem_dest(&cinfo, &outbuffer, &outsize)  # must call after defaults
         jpeg_set_quality(&cinfo, quality, 1)
 
@@ -279,7 +270,6 @@ def jpeg8_decode(
     colorspace=None,
     outcolorspace=None,
     shape=None,
-    numthreads=None,
     out=None
 ):
     """Decode JPEG 8-bit image to numpy array.
@@ -310,11 +300,7 @@ def jpeg8_decode(
         # limit to 4 GB
         raise ValueError('data too large')
 
-    if colorspace is None:
-        jpeg_color_space = JCS_UNKNOWN
-    else:
-        jpeg_color_space = _jcs_colorspace(colorspace)
-
+    jpeg_color_space = _jcs_colorspace(colorspace)
     if outcolorspace is None:
         out_color_space = jpeg_color_space
     else:
@@ -406,8 +392,6 @@ cdef void my_output_message(jpeg_common_struct* cinfo) nogil:
 
 def _jcs_colorspace(colorspace):
     """Return JCS colorspace value from user input."""
-    if isinstance(colorspace, str):
-        colorspace = colorspace.upper()
     IF HAVE_LIBJPEG_TURBO:
         jcs = {
             None: JCS_UNKNOWN,
@@ -418,7 +402,6 @@ def _jcs_colorspace(colorspace):
             'MINISBLACK': JCS_GRAYSCALE,
             'RGB': JCS_RGB,
             'CMYK': JCS_CMYK,
-            'SEPARATED': JCS_CMYK,
             'YCCK': JCS_YCCK,
             'YCBCR': JCS_YCbCr,
             'RGBA': JCS_EXT_RGBA,

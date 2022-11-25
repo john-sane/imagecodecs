@@ -1,7 +1,7 @@
 # imagecodecs/libwebp.pxd
 # cython: language_level = 3
 
-# Cython declarations for the `libwebp 1.2.2` library.
+# Cython declarations for the `libwebp 1.2.0` library.
 # https://github.com/webmproject/libwebp
 
 from libc.stdint cimport uint8_t, uint32_t
@@ -363,6 +363,9 @@ cdef extern from 'webp/encode.h':
 
     int WEBP_ENCODER_ABI_VERSION
 
+    ctypedef struct WebPPicture:
+        pass
+
     int WebPGetEncoderVersion() nogil
 
     size_t WebPEncodeRGB(
@@ -579,7 +582,7 @@ cdef extern from 'webp/encode.h':
 
     int WEBP_MAX_DIMENSION
 
-    ctypedef struct WebPPicture:
+    struct WebPPicture:
         int use_argb
         WebPEncCSP colorspace
         int width

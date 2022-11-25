@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2020-2022, Christoph Gohlke
+# Copyright (c) 2020-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -39,7 +39,7 @@
 
 """
 
-__version__ = '2022.7.27'
+__version__ = '2021.2.26'
 
 include '_shared.pxi'
 
@@ -60,7 +60,6 @@ class LercError(RuntimeError):
             WrongParam: 'WrongParam',
             BufferTooSmall: 'BufferTooSmall',
             NaN: 'NaN',
-            # HasNoData: 'HasNoData',  # requires LERC 4
         }.get(err, f'unknown error {err!r}')
         msg = f'{func} returned {msg}'
         super().__init__(msg)
@@ -68,9 +67,7 @@ class LercError(RuntimeError):
 
 def lerc_version():
     """Return LERC library version string."""
-    return 'lerc {}.{}.{}'.format(
-        LERC_VERSION_MAJOR, LERC_VERSION_MINOR, LERC_VERSION_PATCH
-    )
+    return 'lerc 2.2'
 
 
 def lerc_check(const uint8_t[::1] data):
@@ -84,33 +81,33 @@ def lerc_check(const uint8_t[::1] data):
 def lerc_encode(
     data,
     level=None,
-    masks=None,
+    mask=None,
     version=None,
-    planar=None,
-    numthreads=None,
+    planarconfig=None,
     out=None
 ):
     """Compress LERC.
 
     """
     cdef:
-        numpy.ndarray src = numpy.ascontiguousarray(data)
-        numpy.ndarray msk
+        numpy.ndarray src = data
         const uint8_t[::1] dst  # must be const to write to bytes
         ssize_t dstsize
         unsigned char* pValidBytes = NULL
         lerc_status ret
         unsigned int nBytesWritten
         unsigned int dataType
-        int nDepth = 1
+        int nDim = 1
         int nCols = 1
         int nRows = 1
         int nBands = 1
-        int nMasks = 0
         int iversion = 4 if version is None else version
         double maxZErr = _default_value(level, 0.0, 0.0, None)
         unsigned int blobSize
         int ndim = src.ndim
+
+    if data is out:
+        raise ValueError('cannot encode in-place')
 
     if src.dtype == numpy.uint8:
         dataType = dt_uchar
@@ -135,39 +132,23 @@ def lerc_encode(
         nRows = <int> src.shape[0]
         nCols = <int> src.shape[1]
     elif ndim == 3:
-        if planar:
+        if planarconfig is None or planarconfig in ('contig', 'CONTIG', 1):
+            nRows = <int> src.shape[0]
+            nCols = <int> src.shape[1]
+            nDim = <int> src.shape[2]
+        else:
             nBands = <int> src.shape[0]
             nRows = <int> src.shape[1]
             nCols = <int> src.shape[2]
-        else:
-            nRows = <int> src.shape[0]
-            nCols = <int> src.shape[1]
-            nDepth = <int> src.shape[2]
     elif ndim == 4:
         nBands = <int> src.shape[0]
         nRows = <int> src.shape[1]
         nCols = <int> src.shape[2]
-        nDepth = <int> src.shape[3]
+        nDim = <int> src.shape[3]
     elif ndim == 1:
         nCols = <int> src.shape[0]
     else:
         raise ValueError('data shape not supported by LERC')
-
-    if masks is not None:
-        msk = numpy.ascontiguousarray(masks)
-        if msk.dtype != bool:
-            raise ValueError('masks array must be of dtype bool')
-        if msk.ndim == 2:
-            nMasks = 1
-            if msk.shape[0] != nRows or msk.shape[1] != nCols:
-                raise ValueError('masks.shape does not match data')
-        elif msk.ndim == 3:
-            nMasks = <int> msk.shape[0]
-            if msk.shape[1] != nRows or msk.shape[2] != nCols:
-                raise ValueError('masks.shape does not match data')
-        else:
-            raise ValueError('invalid masks.shape')
-        pValidBytes = <unsigned char*> msk.data
 
     out, dstsize, outgiven, outtype = _parse_output(out)
     if out is None:
@@ -176,11 +157,10 @@ def lerc_encode(
                 <const void*> src.data,
                 iversion,
                 dataType,
-                nDepth,
+                nDim,
                 nCols,
                 nRows,
                 nBands,
-                nMasks,
                 pValidBytes,
                 maxZErr,
                 &blobSize
@@ -199,11 +179,10 @@ def lerc_encode(
             <const void*> src.data,
             iversion,
             dataType,
-            nDepth,
+            nDim,
             nCols,
             nRows,
             nBands,
-            nMasks,
             pValidBytes,
             maxZErr,
             <unsigned char*> &dst[0],
@@ -217,7 +196,7 @@ def lerc_encode(
     return _return_output(out, dstsize, <ssize_t> nBytesWritten, outgiven)
 
 
-def lerc_decode(data, index=None, masks=None, numthreads=None, out=None):
+def lerc_decode(data, index=None, mask=None, out=None):
     """Decompress LERC.
 
     """
@@ -227,18 +206,17 @@ def lerc_decode(data, index=None, masks=None, numthreads=None, out=None):
         const uint8_t[::1] src = data
         const uint8_t[::1] header
         ssize_t srcsize = src.size
-        unsigned int[9] infoArray
+        unsigned int[8] infoArray
         double[3] dataRangeArray
         unsigned char* pValidBytes = NULL
         lerc_status ret
         int version
-        int nDepth
+        unsigned int dataType
+        int nDim
         int nCols
         int nRows
         int nBands
-        int nMasks
         int nValidPixels
-        unsigned int dataType
         unsigned int blobSize
 
     if data is out:
@@ -246,14 +224,15 @@ def lerc_decode(data, index=None, masks=None, numthreads=None, out=None):
 
     if bytes(src[:9]) == b'CntZImage' and hasattr(data, 'write_byte'):
         # Lerc1 decoder segfaults if data is not writable
-        src = memoryview(data).tobytes()
+        # raises TypeError: mmap can't modify a readonly memory map
+        data[0] = data[0]
 
     ret = lerc_getBlobInfo(
         <const unsigned char*> &src[0],
         <unsigned int> srcsize,
         &infoArray[0],
         &dataRangeArray[0],
-        9,
+        8,
         3
     )
     if ret != 0:
@@ -261,13 +240,12 @@ def lerc_decode(data, index=None, masks=None, numthreads=None, out=None):
 
     version = infoArray[0]
     dataType = infoArray[1]
-    nDepth = infoArray[2]
+    nDim = infoArray[2]
     nCols = infoArray[3]
     nRows = infoArray[4]
     nBands = infoArray[5]
     nValidPixels = infoArray[6]
     blobSize = infoArray[7]
-    nMasks = infoArray[8]
 
     if srcsize < <ssize_t> blobSize:
         raise RuntimeError('incomplete blob')
@@ -292,32 +270,31 @@ def lerc_decode(data, index=None, masks=None, numthreads=None, out=None):
         raise RuntimeError('invalid data type')
 
     if nBands > 1:
-        if nDepth > 1:
-            shape = nBands, nRows, nCols, nDepth
+        if nDim > 1:
+            shape = nBands, nRows, nCols, nDim
         else:
             shape = nBands, nRows, nCols
-    elif nDepth > 1:
-        shape = nRows, nCols, nDepth
+    elif nDim > 1:
+        shape = nRows, nCols, nDim
     else:
         shape = nRows, nCols
 
     out = _create_array(out, shape, dtype, None, nValidPixels != nRows * nCols)
     dst = out
 
-    if nMasks > 0:
-        if nMasks <= 1:
-            valid = _create_array(masks, (nRows, nCols), numpy.bool8)
-        else:
-            valid = _create_array(masks, (nMasks, nRows, nCols), numpy.bool8)
+    if not (mask is None or mask is False):
+        if mask is True:
+            mask = None
+        mask = _create_array(mask, (nRows, nCols), numpy.bool8)
+        valid = mask
         pValidBytes = <unsigned char*> valid.data
 
     with nogil:
         ret = lerc_decode_c(
             <const unsigned char*> &src[0],
             blobSize,
-            nMasks,
             pValidBytes,
-            nDepth,
+            nDim,
             nCols,
             nRows,
             nBands,
@@ -327,9 +304,7 @@ def lerc_decode(data, index=None, masks=None, numthreads=None, out=None):
     if ret != 0:
         raise LercError('lerc_decode', ret)
 
-    if masks is None or masks is False:
-        return out
-    elif nMasks > 0:
-        return out, valid
-    else:
-        return out, None
+    if pValidBytes != NULL:
+        return out, mask
+
+    return out

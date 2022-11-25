@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2019-2022, Christoph Gohlke
+# Copyright (c) 2019-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """TIFF codec for the imagecodecs package."""
 
-__version__ = '2022.9.26'
+__version__ = '2021.4.28'
 
 include '_shared.pxi'
 
@@ -54,49 +54,39 @@ cdef extern from '<stdio.h>':
 class _TIFF:
     """TIFF Constants."""
 
-    class VERSION(enum.IntEnum):
-        CLASSIC = TIFF_VERSION_CLASSIC
-        BIG = TIFF_VERSION_BIG
+    VERSION_CLASSIC = TIFF_VERSION_CLASSIC
+    VERSION_BIG = TIFF_VERSION_BIG
+    BIGENDIAN = TIFF_BIGENDIAN
+    LITTLEENDIAN = TIFF_LITTLEENDIAN
 
-    class ENDIAN(enum.IntEnum):
-        BIG = TIFF_BIGENDIAN
-        LITTLE = TIFF_LITTLEENDIAN
 
-    class COMPRESSION(enum.IntEnum):
-        NONE = COMPRESSION_NONE
-        LZW = COMPRESSION_LZW
-        JPEG = COMPRESSION_JPEG
-        PACKBITS = COMPRESSION_PACKBITS
-        DEFLATE = COMPRESSION_DEFLATE
-        ADOBE_DEFLATE = COMPRESSION_ADOBE_DEFLATE
-        LZMA = COMPRESSION_LZMA
-        ZSTD = COMPRESSION_ZSTD
-        WEBP = COMPRESSION_WEBP
-        # LERC = COMPRESSION_LERC
-        # JXL = COMPRESSION_JXL
-
-    class PHOTOMETRIC(enum.IntEnum):
-        MINISWHITE = PHOTOMETRIC_MINISWHITE
-        MINISBLACK = PHOTOMETRIC_MINISBLACK
-        RGB = PHOTOMETRIC_RGB
-        PALETTE = PHOTOMETRIC_PALETTE
-        MASK = PHOTOMETRIC_MASK
-        SEPARATED = PHOTOMETRIC_SEPARATED
-        YCBCR = PHOTOMETRIC_YCBCR
-
-    class PLANARCONFIG(enum.IntEnum):
-        CONTIG = PLANARCONFIG_CONTIG
-        SEPARATE = PLANARCONFIG_SEPARATE
-
-    class PREDICTOR(enum.IntEnum):
-        NONE = PREDICTOR_NONE
-        HORIZONTAL = PREDICTOR_HORIZONTAL
-        FLOATINGPOINT = PREDICTOR_FLOATINGPOINT
-
-    class EXTRASAMPLE(enum.IntEnum):
-        UNSPECIFIED = EXTRASAMPLE_UNSPECIFIED
-        ASSOCALPHA = EXTRASAMPLE_ASSOCALPHA
-        UNASSALPHA = EXTRASAMPLE_UNASSALPHA
+_set_attributes(
+    _TIFF,
+    'TIFF',
+    COMPRESSION_NONE=COMPRESSION_NONE,
+    COMPRESSION_LZW=COMPRESSION_LZW,
+    COMPRESSION_JPEG=COMPRESSION_JPEG,
+    COMPRESSION_PACKBITS=COMPRESSION_PACKBITS,
+    COMPRESSION_DEFLATE=COMPRESSION_DEFLATE,
+    COMPRESSION_ADOBE_DEFLATE=COMPRESSION_ADOBE_DEFLATE,
+    COMPRESSION_LZMA=COMPRESSION_LZMA,
+    COMPRESSION_ZSTD=COMPRESSION_ZSTD,
+    COMPRESSION_WEBP=COMPRESSION_WEBP,
+    # COMPRESSION_LERC=COMPRESSION_LERC,
+    # COMPRESSION_JXL=COMPRESSION_JXL,
+    PHOTOMETRIC_MINISWHITE=PHOTOMETRIC_MINISWHITE,
+    PHOTOMETRIC_MINISBLACK=PHOTOMETRIC_MINISBLACK,
+    PHOTOMETRIC_RGB=PHOTOMETRIC_RGB,
+    PHOTOMETRIC_PALETTE=PHOTOMETRIC_PALETTE,
+    PHOTOMETRIC_MASK=PHOTOMETRIC_MASK,
+    PHOTOMETRIC_SEPARATED=PHOTOMETRIC_SEPARATED,
+    PHOTOMETRIC_YCBCR=PHOTOMETRIC_YCBCR,
+    PLANARCONFIG_CONTIG=PLANARCONFIG_CONTIG,
+    PLANARCONFIG_SEPARATE=PLANARCONFIG_SEPARATE,
+    PREDICTOR_NONE=PREDICTOR_NONE,
+    PREDICTOR_HORIZONTAL=PREDICTOR_HORIZONTAL,
+    PREDICTOR_FLOATINGPOINT=PREDICTOR_FLOATINGPOINT
+)
 
 
 class TiffError(RuntimeError):
@@ -141,48 +131,22 @@ def tiff_check(const uint8_t[::1] data):
     )
 
 
-def tiff_encode(
-    data,
-    level=None,
-    bigtiff=None,
-    append=None,
-    photometric=None,
-    planarconfig=None,
-    extrasamples=None,
-    # volumetric=False,
-    tile=None,
-    rowsperstrip=None,
-    bitspersample=None,
-    compression=None,
-    predictor=None,
-    # colormap=None,
-    description=None,
-    datetime=None,
-    resolution=None,
-    subfiletype=0,
-    software=None,
-    verbose=0,
-    numthreads=None,
-    out=None
-):
+def tiff_encode(data, level=None, verbose=0, out=None):
     """Return TIFF image from numpy array.
 
     """
-    raise NotImplementedError('tiff_encode')  # TODO
+    raise NotImplementedError('tiff_encode')
 
 
-def tiff_decode(
-    data, index=0, asrgb=False, verbose=0, numthreads=None, out=None
-):
+def tiff_decode(data, index=0, asrgb=False, verbose=0, out=None):
     """Return numpy array from TIFF image.
 
     By default the image from the first directory/page is returned.
     If index is None, all images in the file with matching shape and
     dtype are returned in one array.
 
-    If asrgb is True, return decoded image as RGBA32.
-    Return JPEG compressed images as 8-bit Grayscale or RGB24.
-    Return images stored in CMYK colorspace as RGB24.
+    Return decoded image as RGBA uint8 if asrgb is True or image is stored
+    with JPEG compression, YCBCR or CMYK colorspace.
 
     The libtiff library does not correctly handle truncated ImageJ hyperstacks,
     SGI depth, STK, LSM, and many other bio-TIFF files.
@@ -202,8 +166,8 @@ def tiff_decode(
         int ret
         uint32_t strip
         ssize_t i, j, size, sizeleft, outindex, imagesize, images
-        ssize_t[8] sizes
-        ssize_t[8] sizes2
+        ssize_t[7] sizes
+        ssize_t[7] sizes2
         char[2] dtype
         char[2] dtype2
         bint rgb = asrgb
@@ -222,7 +186,7 @@ def tiff_decode(
         dirstep = 1
         dirlist = dirlist_new(64)
         dirlist_append(dirlist, dirstart)
-    elif index == 0 or isinstance(index, (int, numpy.integer)):
+    elif index == 0 or isinstance(index, int):
         dirnum = index
         dirlist = dirlist_new(1)
         dirlist_append(dirlist, dirnum)
@@ -238,7 +202,7 @@ def tiff_decode(
         dirlist_extend(dirlist, index)
     elif isinstance(index, slice):
         if index.step is not None and index.step < 1:
-            raise NotImplementedError('negative steps not implemented')  # TODO
+            raise NotImplementedError('negative steps not implemented')
         dirstart = 0 if index.start is None else index.start
         dirstop = UINT16_MAX if index.stop is None else index.stop
         dirstep = 1 if index.step is None else index.step
@@ -290,8 +254,8 @@ def tiff_decode(
                     f'bitspersample {int(sizes[6])} not supported'
                 )
 
-            # if sizes[2] > 1:
-            #     raise NotImplementedError(f'libtiff does not support depth')
+            #if sizes[2] > 1:
+            #    raise NotImplementedError(f'libtiff does not support depth')
 
             if dirlist.size > 1 and dirlist.index == 1:
                 # index is None or slice
@@ -437,24 +401,7 @@ def tiff_decode(
         if verbosity > 0:
             TIFFSetWarningHandler(tif_warning_handler)
 
-    if not rgb and isrgb and sizes[7] > 0:
-        # discard Alpha channel if JPEG compression, YCBCR...
-        out = out[..., : sizes[7]]
-        shape = (
-            images,
-            int(sizes[1]),
-            int(sizes[2]),
-            int(sizes[3]),
-            int(sizes[4]),
-            int(sizes[7])
-        )
-        out.shape = tuple(
-            s for i, s in enumerate(shape) if s > 1 or i in (3, 4)
-        )
-        # ? out = numpy.ascontiguousarray(out)
-    else:
-        out.shape = shapeout
-
+    out.shape = shapeout
     return out
 
 
@@ -467,8 +414,7 @@ cdef int tiff_read_ifd(
 ) nogil:
     """Get normalized image shape and dtype from current IFD tags.
 
-    'sizes' contains images, planes, depth, height, width, samples, itemsize,
-    true_samples.
+    'sizes' contains images, planes, depth, height, width, samples, itemsize
 
     """
     cdef:
@@ -517,14 +463,9 @@ cdef int tiff_read_ifd(
         compression == COMPRESSION_JPEG
         or compression == COMPRESSION_OJPEG
         or photometric == PHOTOMETRIC_YCBCR
+        or photometric == PHOTOMETRIC_SEPARATED
     ):
         asrgb[0] = 1
-        sizes[7] = <ssize_t> samplesperpixel
-    elif photometric == PHOTOMETRIC_SEPARATED:
-        asrgb[0] = 1
-        sizes[7] = 3  # CMYK -> RGB
-    else:
-        sizes[7] = 0
 
     if asrgb[0] != 0:
         istiled[0] = 0  # don't care
@@ -550,14 +491,6 @@ cdef int tiff_read_ifd(
     dtype[1] = 0
     if asrgb[0]:
         dtype[0] = b'u'
-    elif photometric == PHOTOMETRIC_LOGLUV:
-        # return LogLuv as float32
-        dtype[0] = b'f'
-        sizes[0] = <ssize_t> SAMPLEFORMAT_IEEEFP
-        bitspersample = 32
-        ret = TIFFSetField(tif, TIFFTAG_SGILOGDATAFMT, SGILOGDATAFMT_FLOAT)
-        if ret == 0:
-            return 0
     elif sampleformat == SAMPLEFORMAT_UINT:
         dtype[0] = b'u'
     elif sampleformat == SAMPLEFORMAT_INT:
@@ -569,8 +502,8 @@ cdef int tiff_read_ifd(
             and bitspersample != 32
             and bitspersample != 64
         ):
-            sizes[0] = <ssize_t> sampleformat
-            sizes[6] = <ssize_t> bitspersample
+            sizes[0] = sampleformat
+            sizes[6] = bitspersample
             return -1
     elif sampleformat == SAMPLEFORMAT_COMPLEXIEEEFP:
         dtype[0] = b'c'

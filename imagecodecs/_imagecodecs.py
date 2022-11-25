@@ -1,6 +1,6 @@
 # imagecodecs/_imagecodecs.py
 
-# Copyright (c) 2008-2022, Christoph Gohlke
+# Copyright (c) 2008-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@ The module is intended for testing and reference, not production code.
 
 """
 
-__version__ = '2022.2.22'
+__version__ = '2021.3.31'
 
 import bz2
 import functools
@@ -64,11 +64,6 @@ try:
     import blosc
 except ImportError:
     blosc = None
-
-try:
-    import blosc2
-except ImportError:
-    blosc2 = None
 
 try:
     import brotli
@@ -139,8 +134,7 @@ def version(astype=None, _versions_=[]):
                 ('bz2', 'stdlib'),
                 ('lzma', getattr(lzma, '__version__', 'stdlib')),
                 ('blosc', blosc.__version__ if blosc else 'n/a'),
-                ('blosc2', blosc2.__version__ if blosc2 else 'n/a'),
-                ('zstd', zstd.version()[1:-1] if zstd else 'n/a'),
+                ('zstd', zstd.version() if zstd else 'n/a'),
                 ('lz4', lz4.VERSION if lz4 else 'n/a'),
                 ('lzf', 'unknown' if lzf else 'n/a'),
                 ('snappy', 'unknown' if snappy else 'n/a'),
@@ -242,7 +236,6 @@ def delta_encode(data, axis=-1, dist=1, out=None):
     """
     if dist != 1:
         raise NotImplementedError(f'dist {dist} not implemented')
-
     if isinstance(data, (bytes, bytearray)):
         data = numpy.frombuffer(data, dtype='u1')
         diff = numpy.diff(data, axis=0)
@@ -250,13 +243,12 @@ def delta_encode(data, axis=-1, dist=1, out=None):
 
     dtype = data.dtype
     if dtype.kind == 'f':
-        data = data.view(f'{dtype.byteorder}u{dtype.itemsize}')  #
+        data = data.view(f'u{dtype.itemsize}')
 
     diff = numpy.diff(data, axis=axis)
     key = [slice(None)] * data.ndim
     key[axis] = 0
     diff = numpy.insert(diff, 0, data[tuple(key)], axis=axis)
-    diff = diff if data.dtype.isnative else diff.byteswap(True).newbyteorder()
 
     if dtype.kind == 'f':
         return diff.view(dtype)
@@ -274,11 +266,16 @@ def delta_decode(data, axis=-1, dist=1, out=None):
         raise NotImplementedError(f'dist {dist} not implemented')
     if out is not None and not out.flags.writeable:
         out = None
+
     if isinstance(data, (bytes, bytearray)):
         data = numpy.frombuffer(data, dtype='u1')
         return numpy.cumsum(data, axis=0, dtype='u1', out=out).tobytes()
-    out = numpy.cumsum(data, axis=axis, dtype=data.dtype, out=out)
-    return out if data.dtype.isnative else out.byteswap(True).newbyteorder()
+
+    if data.dtype.kind == 'f':
+        view = data.view(f'u{data.dtype.itemsize}')
+        view = numpy.cumsum(view, axis=axis, dtype=view.dtype)
+        return view.view(data.dtype)
+    return numpy.cumsum(data, axis=axis, dtype=data.dtype, out=out)
 
 
 def xor_encode(data, axis=-1, out=None):
@@ -313,8 +310,6 @@ def xor_encode(data, axis=-1, out=None):
 
     if dtype.kind == 'f':
         return xor.view(dtype)
-    elif not data.dtype.isnative:
-        xor = xor.byteswap(True).newbyteorder()
     return xor
 
 
@@ -351,9 +346,9 @@ def floatpred_decode(data, axis=-2, dist=1, out=None):
 
     """
     if dist != 1:
-        raise NotImplementedError(f'dist {dist} not implemented')  # TODO
+        raise NotImplementedError(f'dist {dist} not implemented')
     if axis != -2:
-        raise NotImplementedError(f'axis {axis!r} != -2')  # TODO
+        raise NotImplementedError(f'axis {axis!r} != -2')
     shape = data.shape
     dtype = data.dtype
     if len(shape) < 3:

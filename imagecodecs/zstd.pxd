@@ -1,7 +1,7 @@
 # imagecodecs/zstd.pxd
 # cython: language_level = 3
 
-# Cython declarations for the `zstd 1.5.2` library (aka Zstandard).
+# Cython declarations for the `zstd 1.4.8` library (aka Zstandard).
 # https://github.com/facebook/zstd
 
 cdef extern from 'zstd.h':
@@ -153,9 +153,6 @@ cdef extern from 'zstd.h':
         ZSTD_c_experimentalParam10
         ZSTD_c_experimentalParam11
         ZSTD_c_experimentalParam12
-        ZSTD_c_experimentalParam13
-        ZSTD_c_experimentalParam14
-        ZSTD_c_experimentalParam15
 
     ctypedef struct ZSTD_bounds:
         size_t error
@@ -471,6 +468,7 @@ cdef extern from 'zstd.h':
     int ZSTD_TARGETCBLOCKSIZE_MAX
     int ZSTD_SRCSIZEHINT_MIN
     int ZSTD_SRCSIZEHINT_MAX
+    int ZSTD_HASHLOG3_MAX
 
     ctypedef struct ZSTD_CCtx_params:
         pass
@@ -527,11 +525,6 @@ cdef extern from 'zstd.h':
         ZSTD_lcm_huffman
         ZSTD_lcm_uncompressed
 
-    ctypedef enum ZSTD_useRowMatchFinderMode_e:
-        ZSTD_urm_auto
-        ZSTD_urm_disableRowMatchFinder
-        ZSTD_urm_enableRowMatchFinder
-
     unsigned long long ZSTD_findDecompressedSize(
         const void* src,
         size_t srcSize
@@ -573,26 +566,6 @@ cdef extern from 'zstd.h':
         size_t inSeqsSize,
         const void* src,
         size_t srcSize
-    ) nogil
-
-    size_t ZSTD_writeSkippableFrame(
-        void* dst,
-        size_t dstCapacity,
-        const void* src,
-        size_t srcSize,
-        unsigned magicVariant
-    ) nogil
-
-    size_t ZSTD_readSkippableFrame(
-        void* dst,
-        size_t dstCapacity,
-        unsigned* magicVariant,
-        const void* src, size_t srcSize
-    ) nogil
-
-    unsigned ZSTD_isSkippableFrame(
-        const void* buffer,
-        size_t size
     ) nogil
 
     size_t ZSTD_estimateCCtxSize(
@@ -766,9 +739,9 @@ cdef extern from 'zstd.h':
         int compressionLevel
     ) nogil
 
-    # unsigned ZSTD_getDictID_fromCDict(
-    #     const ZSTD_CDict* cdict
-    # ) nogil
+    unsigned ZSTD_getDictID_fromCDict(
+        const ZSTD_CDict* cdict
+    ) nogil
 
     ZSTD_compressionParameters ZSTD_getCParams(
         int compressionLevel,
@@ -846,9 +819,6 @@ cdef extern from 'zstd.h':
     int ZSTD_c_stableOutBuffer
     int ZSTD_c_blockDelimiters
     int ZSTD_c_validateSequences
-    int ZSTD_c_useBlockSplitter
-    int ZSTD_c_useRowMatchFinder
-    int ZSTD_c_deterministicRefPrefix
 
     size_t ZSTD_CCtx_getParameter(
         ZSTD_CCtx* cctx,
@@ -1045,9 +1015,24 @@ cdef extern from 'zstd.h':
         int compressionLevel
     ) nogil
 
+    size_t ZSTD_compressBegin_advanced(
+        ZSTD_CCtx* cctx,
+        const void* dict,
+        size_t dictSize,
+        ZSTD_parameters params,
+        unsigned long long pledgedSrcSize
+    ) nogil
+
     size_t ZSTD_compressBegin_usingCDict(
         ZSTD_CCtx* cctx,
         const ZSTD_CDict* cdict
+    ) nogil
+
+    size_t ZSTD_compressBegin_usingCDict_advanced(
+        ZSTD_CCtx* const cctx,
+        const ZSTD_CDict* const cdict,
+        ZSTD_frameParameters fParams,
+        unsigned long long pledgedSrcSize
     ) nogil
 
     size_t ZSTD_copyCCtx(
@@ -1070,21 +1055,6 @@ cdef extern from 'zstd.h':
         size_t dstCapacity,
         const void* src,
         size_t srcSize
-    ) nogil
-
-    size_t ZSTD_compressBegin_advanced(
-        ZSTD_CCtx* cctx,
-        const void* dict,
-        size_t dictSize,
-        ZSTD_parameters params,
-        unsigned long long pledgedSrcSize
-    ) nogil
-
-    size_t ZSTD_compressBegin_usingCDict_advanced(
-        ZSTD_CCtx* const cctx,
-        const ZSTD_CDict* const cdict,
-        ZSTD_frameParameters fParams,
-        unsigned long long pledgedSrcSize
     ) nogil
 
     ctypedef enum ZSTD_frameType_e:

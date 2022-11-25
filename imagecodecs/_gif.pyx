@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2019-2022, Christoph Gohlke
+# Copyright (c) 2019-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """GIF codec for the imagecodecs package."""
 
-__version__ = '2022.2.22'
+__version__ = '2021.1.28'
 
 include '_shared.pxi'
 
@@ -81,10 +81,10 @@ def gif_check(const uint8_t[::1] data):
     return sig == b'GIF87a' or sig == b'GIF89a'
 
 
-def gif_encode(data, level=None, colormap=None, numthreads=None, out=None):
+def gif_encode(data, level=None, colormap=None, out=None):
     """Return GIF image from numpy array."""
     cdef:
-        numpy.ndarray src = numpy.ascontiguousarray(data)
+        numpy.ndarray src = data
         const uint8_t[::1] dst  # must be const to write to bytes
         ssize_t dstsize
         ssize_t srcsize = src.nbytes
@@ -98,13 +98,17 @@ def gif_encode(data, level=None, colormap=None, numthreads=None, out=None):
         int imagecount = 1
         int ret, err = 0
 
+    if data is out:
+        raise ValueError('cannot encode in-place')
+
     if not (
         src.dtype == numpy.uint8
         and src.ndim in (2, 3)
         and src.shape[0] < 2 ** 16
         and src.shape[1] < 2 ** 16
+        and numpy.PyArray_ISCONTIGUOUS(src)
     ):
-        raise ValueError('invalid data shape or dtype')
+        raise ValueError('invalid input shape, strides, or dtype')
 
     if src.ndim > 2:
         imagecount = <int> src.shape[0]
@@ -175,7 +179,7 @@ def gif_encode(data, level=None, colormap=None, numthreads=None, out=None):
                         width
                     )
                     if ret != GIF_OK:
-                        raise GifError('EGifPutLine', gif.Error)
+                        raise GifError('EGifPutImageDesc', gif.Error)
     finally:
         free(colormapobj)
         ret = EGifCloseFile(gif, &err)
@@ -186,7 +190,7 @@ def gif_encode(data, level=None, colormap=None, numthreads=None, out=None):
     return _return_output(out, dstsize, memgif.offset, outgiven)
 
 
-def gif_decode(data, index=None, asrgb=True, numthreads=None, out=None):
+def gif_decode(data, index=None, asrgb=True, out=None):
     """Decode GIF image to numpy array.
 
     By default all images in the file are returned in one array.
@@ -216,7 +220,6 @@ def gif_decode(data, index=None, asrgb=True, numthreads=None, out=None):
         uint8_t* extptr
         uint8_t color
         bint rgb = asrgb
-        bint previous_is_background = False
 
     if data is out:
         raise ValueError('cannot decode in-place')
@@ -315,7 +318,7 @@ def gif_decode(data, index=None, asrgb=True, numthreads=None, out=None):
 
                 for i in range(imagecount):
 
-                    if i == 0 or imagesize == 0 or previous_is_background:
+                    if i == 0 or imagesize == 0:
                         # initialize frame to background
                         k = i * imagesize
                         for j in range(height * width):
@@ -406,11 +409,6 @@ def gif_decode(data, index=None, asrgb=True, numthreads=None, out=None):
                             if extblock.Bytes[0] & 0x01:
                                 transparent = <int> extblock.Bytes[3]
                             disposal = <int> ((extblock.Bytes[0] >> 2) & 0x07)
-                    if disposal == DISPOSE_PREVIOUS:
-                        if i == 0:
-                            previous_is_background = True
-                    else:
-                        previous_is_background = False
 
                     # paste new image
                     j = 0

@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2021-2022, Christoph Gohlke
+# Copyright (c) 2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """Lossless JPEG codec for the imagecodecs package."""
 
-__version__ = '2022.2.22'
+__version__ = '2021.1.28'
 
 include '_shared.pxi'
 
@@ -71,12 +71,10 @@ def ljpeg_check(data):
     """Return True if data likely contains a LJPEG image."""
 
 
-def ljpeg_encode(
-    data, level=None, bitspersample=None, numthreads=None, out=None
-):
+def ljpeg_encode(data, level=None, bitspersample=None, out=None):
     """Return Lossless JPEG image from numpy array."""
     cdef:
-        numpy.ndarray src = numpy.ascontiguousarray(data)
+        numpy.ndarray src = data
         const uint8_t[::1] dst  # must be const to write to bytes
         ssize_t dstsize
         uint16_t* srcptr = NULL
@@ -88,14 +86,17 @@ def ljpeg_encode(
         int samples = <int> src.shape[2] if src.ndim == 3 else 1
         int ret = LJ92_ERROR_NONE
 
+    if data is out:
+        raise ValueError('cannot encode in-place')
+
     if not (
         src.dtype in (numpy.uint8, numpy.uint16)
         and src.ndim in (2, 3)
         and samples == 1  # in (1, 3, 4)  RGB does not work correctly
         and src.shape[0] * src.shape[1] < 2 ** 31
-        # and numpy.PyArray_ISCONTIGUOUS(src)  # TODO: support strides
+        and numpy.PyArray_ISCONTIGUOUS(src)  # TODO: support strides
     ):
-        raise ValueError('invalid data shape or dtype')
+        raise ValueError('invalid input shape, strides, or dtype')
 
     if src.dtype == numpy.uint8:
         src = src.astype(numpy.uint16)
@@ -148,7 +149,7 @@ def ljpeg_encode(
     return _return_output(out, dstsize, <ssize_t> encodedlength, outgiven)
 
 
-def ljpeg_decode(data, index=None, numthreads=None, out=None):
+def ljpeg_decode(data, index=None, out=None):
     """Decode Lossless JPEG image to numpy array.
 
     Beware, the underlying lj92 library is known to crash on some valid input.

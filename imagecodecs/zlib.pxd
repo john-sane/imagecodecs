@@ -1,7 +1,7 @@
 # imagecodecs/zlib.pxd
 # cython: language_level = 3
 
-# Cython declarations for the `zlib 1.2.12` library.
+# Cython declarations for the `zlib 1.2.11` library.
 # https://github.com/madler/zlib
 
 cdef extern from 'zlib.h':
@@ -117,21 +117,12 @@ cdef extern from 'zlib.h':
 
     ctypedef gz_header* gz_headerp
 
-    int deflateInit(
-        z_streamp strm,
-        int level
-    ) nogil
-
     int deflate(
         z_streamp strm,
         int flush
     ) nogil
 
     int deflateEnd(
-        z_streamp strm
-    ) nogil
-
-    int inflateInit(
         z_streamp strm
     ) nogil
 
@@ -270,8 +261,6 @@ cdef extern from 'zlib.h':
     ) nogil
 
     uLong zlibCompileFlags() nogil
-
-    # utility functions
 
     int compress(
         Bytef* dest,
@@ -447,13 +436,7 @@ cdef extern from 'zlib.h':
     ) nogil
 
     uLong crc32_z(
-        uLong crc,
+        uLong adler,
         const Bytef* buf,
         z_size_t len
-    ) nogil
-
-    uLong crc32_combine_op(
-        uLong crc1,
-        uLong crc2,
-        uLong op
     ) nogil

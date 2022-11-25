@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2019-2022, Christoph Gohlke
+# Copyright (c) 2019-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """BZ2 codec for the imagecodecs package."""
 
-__version__ = '2022.2.22'
+__version__ = '2020.12.22'
 
 include '_shared.pxi'
 
@@ -81,7 +81,7 @@ def bz2_check(data):
     """Return True if data likely contains BZ2 data."""
 
 
-def bz2_encode(data, level=None, numthreads=None, out=None):
+def bz2_encode(data, level=None, out=None):
     """Compress BZ2.
 
     """
@@ -107,7 +107,7 @@ def bz2_encode(data, level=None, numthreads=None, out=None):
 
     if out is None:
         if dstsize < 0:
-            raise NotImplementedError  # TODO
+            raise NotImplementedError
         out = _create_output(outtype, dstsize)
 
     dst = out
@@ -140,7 +140,7 @@ def bz2_encode(data, level=None, numthreads=None, out=None):
     return _return_output(out, dstsize, dstlen, outgiven)
 
 
-def bz2_decode(data, numthreads=None, out=None):
+def bz2_decode(data, out=None):
     """Decompress BZ2.
 
     """
@@ -166,7 +166,7 @@ def bz2_decode(data, numthreads=None, out=None):
 
     if out is None:
         if dstsize < 0:
-            raise NotImplementedError  # TODO
+            raise NotImplementedError
         out = _create_output(outtype, dstsize)
 
     dst = out

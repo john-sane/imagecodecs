@@ -6,7 +6,7 @@
 # cython: cdivision=True
 # cython: nonecheck=False
 
-# Copyright (c) 2018-2022, Christoph Gohlke
+# Copyright (c) 2018-2021, Christoph Gohlke
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,7 @@
 
 """Codecs for the imagecodecs package using the imcd.c library."""
 
-__version__ = '2022.7.27'
+__version__ = '2021.2.26'
 
 include '_shared.pxi'
 
@@ -69,8 +69,6 @@ class ImcdError(RuntimeError):
             IMCD_RUNTIME_ERROR: 'IMCD_RUNTIME_ERROR',
             IMCD_NOTIMPLEMENTED_ERROR: 'IMCD_NOTIMPLEMENTED_ERROR',
             IMCD_VALUE_ERROR: 'IMCD_VALUE_ERROR',
-            IMCD_INPUT_CORRUPT: 'IMCD_INPUT_CORRUPT',
-            IMCD_OUTPUT_TOO_SMALL: 'IMCD_OUTPUT_TOO_SMALL',
             IMCD_LZW_INVALID: 'IMCD_LZW_INVALID',
             IMCD_LZW_NOTIMPLEMENTED: 'IMCD_LZW_NOTIMPLEMENTED',
             IMCD_LZW_BUFFER_TOO_SMALL: 'IMCD_LZW_BUFFER_TOO_SMALL',
@@ -108,19 +106,17 @@ delta_version = imcd_version
 delta_check = imcd_check
 
 
-def delta_encode(data, axis=-1, dist=1, numthreads=None, out=None):
+def delta_encode(data, axis=-1, dist=1, out=None):
     """Encode differencing.
-
-    Preserve byteorder.
 
     """
     return _delta(data, axis=axis, dist=dist, out=out, decode=False)
 
 
-def delta_decode(data, axis=-1, dist=1, numthreads=None, out=None):
+def delta_decode(data, axis=-1, dist=1, out=None):
     """Decode differencing.
 
-    Same as numpy.cumsum. Preserve byteorder.
+    Same as numpy.cumsum
 
     """
     return _delta(data, axis=axis, dist=dist, out=out, decode=True)
@@ -135,33 +131,26 @@ cdef _delta(data, int axis, ssize_t dist, out, int decode):
         ssize_t dstsize
         ssize_t srcstride
         ssize_t dststride
-        ssize_t itemsize
         ssize_t ret = 0
         void* srcptr = NULL
         void* dstptr = NULL
         numpy.flatiter srciter
         numpy.flatiter dstiter
-        bint isnative = True
+        ssize_t itemsize
 
     if dist != 1:
-        raise NotImplementedError(f'dist {dist} not implemented')  # TODO
+        raise NotImplementedError(f'dist {dist} not implemented')
 
     if isinstance(data, numpy.ndarray):
         if data.dtype.kind not in 'fiu':
             raise ValueError('not an integer or floating-point array')
 
-        isnative = data.dtype.isnative
-
         if out is None:
             out = numpy.empty_like(data)
         elif not isinstance(out, numpy.ndarray):
             raise ValueError('output is not a numpy array')
-        elif out.shape != data.shape or out.dtype != data.dtype:
+        elif out.shape != data.shape or out.itemsize != data.itemsize:
             raise ValueError('output is not compatible with data array')
-
-        if not isnative:
-            # imcd_delta requires native byteorder
-            data = data.byteswap().newbyteorder()
 
         if axis < 0:
             axis = data.ndim + axis
@@ -196,12 +185,6 @@ cdef _delta(data, int axis, ssize_t dist, out, int decode):
                 numpy.PyArray_ITER_NEXT(dstiter)
         if ret < 0:
             raise DeltaError('imcd_delta', ret)
-
-        if not isnative:
-            try:
-                out = out.byteswap(True)
-            except ValueError:  # read-only out, e.g. out=data
-                out = out.byteswap()
 
         return out
 
@@ -246,14 +229,14 @@ xor_version = imcd_version
 xor_check = imcd_check
 
 
-def xor_encode(data, axis=-1, numthreads=None, out=None):
+def xor_encode(data, axis=-1, out=None):
     """Encode XOR.
 
     """
     return _xor(data, axis=axis, out=out, decode=False)
 
 
-def xor_decode(data, axis=-1, numthreads=None, out=None):
+def xor_decode(data, axis=-1, out=None):
     """Decode XOR.
 
     """
@@ -269,12 +252,12 @@ cdef _xor(data, int axis, out, int decode):
         ssize_t dstsize
         ssize_t srcstride
         ssize_t dststride
-        ssize_t itemsize
         ssize_t ret = 0
         void* srcptr = NULL
         void* dstptr = NULL
         numpy.flatiter srciter
         numpy.flatiter dstiter
+        ssize_t itemsize
 
     if isinstance(data, numpy.ndarray):
         if data.dtype.kind not in 'fiu':
@@ -284,7 +267,7 @@ cdef _xor(data, int axis, out, int decode):
             out = numpy.empty_like(data)
         elif not isinstance(out, numpy.ndarray):
             raise ValueError('output is not a numpy array')
-        elif out.shape != data.shape or out.dtype != data.dtype:
+        elif out.shape != data.shape or out.itemsize != data.itemsize:
             raise ValueError('output is not compatible with data array')
 
         if axis < 0:
@@ -357,72 +340,40 @@ cdef _xor(data, int axis, out, int decode):
     return _return_output(out, dstsize, ret, outgiven)
 
 
-# ByteShuffle Predictor #######################################################
+# Floating Point Predictor ####################################################
 
-# Separately pack bytes of values
+# TIFF Technical Note 3. April 8, 2005.
 
-BYTESHUFFLE = IMCD
-ByteshuffleError = ImcdError
-byteshuffle_version = imcd_version
-byteshuffle_check = imcd_check
+FLOATPRED = IMCD
+FloatpredError = ImcdError
+floatpred_version = imcd_version
+floatpred_check = imcd_check
 
 
-def byteshuffle_encode(
-    data,
-    axis=-1,
-    dist=1,
-    delta=False,
-    reorder=False,
-    numthreads=None,
-    out=None
-):
-    """Encode ByteShuffle Predictor.
+def floatpred_encode(data, axis=-1, dist=1, out=None):
+    """Encode Floating Point Predictor.
 
-    The output array should not be treated as numbers but as an encoded byte
-    sequence viewed as a numpy array with shape and dtype of the input data.
+    The output array should not be treated as floating-point numbers but as an
+    encoded byte sequence viewed as a numpy array with shape and dtype of the
+    input data.
 
     """
-    return _byteshuffle(
-        data,
-        axis=axis,
-        dist=dist,
-        delta=delta,
-        reorder=reorder,
-        decode=False,
-        out=out
-    )
+    return _floatpred(data, axis=axis, dist=dist, out=out, decode=False)
 
 
-def byteshuffle_decode(
-    data,
-    axis=-1,
-    dist=1,
-    delta=False,
-    reorder=False,
-    numthreads=None,
-    out=None
-):
-    """Decode ByteShuffle Predictor.
+def floatpred_decode(data, axis=-1, dist=1, out=None):
+    """Decode Floating Point Predictor.
 
-    The data array is not really an array of numbers but an encoded byte
-    sequence viewed as a numpy array of requested output shape and dtype.
+    The data array is not really an array of floating-point numbers but an
+    encoded byte sequence viewed as a numpy array of requested output shape
+    and dtype.
 
     """
-    return _byteshuffle(
-        data,
-        axis=axis,
-        dist=dist,
-        delta=delta,
-        reorder=reorder,
-        decode=True,
-        out=out
-    )
+    return _floatpred(data, axis=axis, dist=dist, out=out, decode=True)
 
 
-cdef _byteshuffle(
-    data, int axis, ssize_t dist, bint delta, bint reorder, bint decode, out
-):
-    """Encode or decode ByteShuffle Predictor."""
+cdef _floatpred(data, int axis, ssize_t dist, out, int decode):
+    """Encode or decode Floating Point Predictor."""
     cdef:
         void* srcptr = NULL
         void* dstptr = NULL
@@ -437,8 +388,8 @@ cdef _byteshuffle(
         ssize_t ret = 0
         char byteorder
 
-    if not isinstance(data, numpy.ndarray):
-        raise ValueError('not a numpy array')
+    if not isinstance(data, numpy.ndarray) or data.dtype.kind != 'f':
+        raise ValueError('not a floating-point numpy array')
 
     # this needs to pass silently in tifffile
     # if data is out:
@@ -469,9 +420,7 @@ cdef _byteshuffle(
     dst = out.view()
     dst.shape = src.shape
 
-    if not reorder:
-        byteorder = b'>'  # use order of bytes in data
-    elif src.dtype.byteorder == '=':
+    if src.dtype.byteorder == '=':
         byteorder = IMCD_BOC
     else:
         byteorder = <char> ord(src.dtype.byteorder)
@@ -483,16 +432,16 @@ cdef _byteshuffle(
     dstsize = dst.shape[axis] * itemsize
     srcstride = src.strides[axis]
     dststride = dst.strides[axis]
-    if decode and srcstride != itemsize:
+    if decode != 0 and srcstride != itemsize:
         raise ValueError('data not contiguous on dimensions >= axis')
-    elif decode and dststride != itemsize:
+    elif decode == 0 and dststride != itemsize:
         raise ValueError('output not contiguous on dimensions >= axis')
 
     with nogil:
         while numpy.PyArray_ITER_NOTDONE(srciter):
             srcptr = numpy.PyArray_ITER_DATA(srciter)
             dstptr = numpy.PyArray_ITER_DATA(dstiter)
-            ret = imcd_byteshuffle(
+            ret = imcd_floatpred(
                 <void*> srcptr,
                 srcsize,
                 srcstride,
@@ -502,65 +451,16 @@ cdef _byteshuffle(
                 itemsize,
                 samples,
                 byteorder,
-                delta,
-                decode,
+                decode
             )
             if ret < 0:
                 break
             numpy.PyArray_ITER_NEXT(srciter)
             numpy.PyArray_ITER_NEXT(dstiter)
     if ret < 0:
-        raise ByteshuffleError('imcd_byteshuffle', ret)
+        raise FloatpredError('imcd_floatpred', ret)
 
     return out
-
-
-# Floating Point Predictor ####################################################
-
-# TIFF Technical Note 3. April 8, 2005.
-
-FLOATPRED = IMCD
-FloatpredError = ImcdError
-floatpred_version = imcd_version
-floatpred_check = imcd_check
-
-
-def floatpred_encode(data, axis=-1, dist=1, numthreads=None, out=None):
-    """Encode Floating Point Predictor.
-
-    The output array should not be treated as floating-point numbers but as an
-    encoded byte sequence viewed as a numpy array with shape and dtype of the
-    input data.
-
-    """
-    return _byteshuffle(
-        data,
-        axis=axis,
-        dist=dist,
-        delta=True,
-        reorder=True,
-        decode=False,
-        out=out
-    )
-
-
-def floatpred_decode(data, axis=-1, dist=1, numthreads=None, out=None):
-    """Decode Floating Point Predictor.
-
-    The data array is not really an array of floating-point numbers but an
-    encoded byte sequence viewed as a numpy array of requested output shape
-    and dtype.
-
-    """
-    return _byteshuffle(
-        data,
-        axis=axis,
-        dist=dist,
-        delta=True,
-        reorder=True,
-        decode=True,
-        out=out
-    )
 
 
 # BitOrder Reversal ###########################################################
@@ -571,7 +471,7 @@ bitorder_version = imcd_version
 bitorder_check = imcd_check
 
 
-def bitorder_encode(data, numthreads=None, out=None):
+def bitorder_encode(data, out=None):
     """"Reverse bits in each byte of bytes, bytearray or numpy array.
 
     """
@@ -723,7 +623,8 @@ PackbitsError = ImcdError
 packbits_version = imcd_version
 packbits_check = imcd_check
 
-def packbits_encode(data, level=None, axis=None, numthreads=None, out=None):
+
+def packbits_encode(data, level=None, out=None):
     """Compress PackBits.
 
     """
@@ -736,52 +637,39 @@ def packbits_encode(data, level=None, axis=None, numthreads=None, out=None):
         ssize_t srcsize
         ssize_t dstsize
         ssize_t ret = 0
-        bint isarray = isinstance(data, numpy.ndarray)
-        int axis_ = 0
+        bint isarray = False
+        int axis = 0
+
+    if isinstance(data, numpy.ndarray):
+        if data.itemsize != 1:
+            raise ValueError('data is not a byte array')
+        if data.ndim != 1:
+            isarray = True
+            axis = data.ndim - 1
+        if data.strides[axis] != 1:
+            raise ValueError('data array is not contiguous along last axis')
 
     if data is out:
         raise ValueError('cannot decode in-place')
-
-    if isarray:
-        data = numpy.ascontiguousarray(data)
-        if axis is None:
-            axis = data.ndim - 1
-        elif axis < 0:
-            axis = data.ndim + axis
-        if axis >= data.ndim:
-            raise ValueError('invalid axis')
-        if axis < data.ndim - 1:
-            # merge trailing dimensions
-            data = numpy.reshape(data, data.shape[:axis] + (-1,))
-        axis_ = axis
-        if data.strides[axis_] != data.itemsize:
-            raise ValueError(
-                f'data array is not contiguous along axis {axis_}'
-            )
 
     out, dstsize, outgiven, outtype = _parse_output(out)
 
     if out is None:
         if dstsize < 0:
             if isarray:
-                srcsize = data.shape[axis_] * data.itemsize
-                if srcsize > 0:
-                    dstsize = (
-                        data.nbytes // srcsize
-                        * imcd_packbits_encode_size(srcsize)
-                    )
-                else:
-                    dstsize = 0
+                srcsize = data.shape[axis]
+                dstsize = data.size // srcsize * (srcsize + srcsize // 128 + 2)
             else:
-                dstsize = imcd_packbits_encode_size(len(data))
+                srcsize = len(data)
+                dstsize = srcsize + srcsize // 128 + 2
         out = _create_output(outtype, dstsize)
 
-    dst = out  # must be contiguous bytes
+    dst = out
     dstsize = dst.size
 
-    if isarray and data.ndim > 1:
-        srciter = numpy.PyArray_IterAllButAxis(data, &axis_)
-        srcsize = data.shape[axis_] * data.itemsize
+    if isarray:
+        srciter = numpy.PyArray_IterAllButAxis(data, &axis)
+        srcsize = data.shape[axis]
         dstptr = &dst[0]
         with nogil:
             while numpy.PyArray_ITER_NOTDONE(srciter):
@@ -819,7 +707,7 @@ def packbits_encode(data, level=None, axis=None, numthreads=None, out=None):
     return _return_output(out, dstsize, ret, outgiven)
 
 
-def packbits_decode(data, numthreads=None, out=None):
+def packbits_decode(data, out=None):
     """Decompress PackBits.
 
     """
@@ -838,9 +726,9 @@ def packbits_decode(data, numthreads=None, out=None):
     if out is None:
         if dstsize < 0:
             with nogil:
-                dstsize = imcd_packbits_decode_size(&src[0], srcsize)
+                dstsize = imcd_packbits_size(&src[0], srcsize)
             if dstsize < 0:
-                raise PackbitsError('imcd_packbits_decode_size', dstsize)
+                raise PackbitsError('imcd_packbits_size', dstsize)
         out = _create_output(outtype, dstsize)
 
     dst = out
@@ -860,61 +748,6 @@ def packbits_decode(data, numthreads=None, out=None):
     return _return_output(out, dstsize, ret, outgiven)
 
 
-# CCITTRLE ####################################################################
-
-CCITTRLE = IMCD
-CcittrleError = ImcdError
-ccittrle_version = imcd_version
-ccittrle_check = imcd_check
-
-def ccittrle_encode(data, level=None, axis=None, numthreads=None, out=None):
-    """Compress CCITTRLE.
-
-    """
-    raise NotImplementedError('ccittrle_encode')
-
-
-def ccittrle_decode(data, numthreads=None, out=None):
-    """Decompress CCITTRLE.
-
-    """
-    cdef:
-        const uint8_t[::1] src = data
-        const uint8_t[::1] dst  # must be const to write to bytes
-        ssize_t srcsize = src.size
-        ssize_t dstsize
-        ssize_t ret = 0
-
-    if data is out:
-        raise ValueError('cannot decode in-place')
-
-    out, dstsize, outgiven, outtype = _parse_output(out)
-
-    if out is None:
-        if dstsize < 0:
-            with nogil:
-                dstsize = imcd_ccittrle_decode_size(&src[0], srcsize)
-            if dstsize < 0:
-                raise CcittrleError('imcd_ccittrle_decode_size', dstsize)
-        out = _create_output(outtype, dstsize)
-
-    dst = out
-    dstsize = dst.size
-
-    with nogil:
-        ret = imcd_ccittrle_decode(
-            &src[0],
-            srcsize,
-            <uint8_t*> &dst[0],
-            dstsize
-        )
-    if ret < 0:
-        raise CcittrleError('imcd_ccittrle_decode', ret)
-
-    del dst
-    return _return_output(out, dstsize, ret, outgiven)
-
-
 # Packed Integers #############################################################
 
 PACKINTS = IMCD
@@ -923,16 +756,14 @@ packints_version = imcd_version
 packints_check = imcd_check
 
 
-def packints_encode(
-    data, int bitspersample, int axis=-1, numthreads=None, out=None
-):
+def packints_encode(data, int bitspersample, int axis=-1, out=None):
     """Pack integers."""
 
     raise NotImplementedError('packints_encode')
 
 
 def packints_decode(
-    data, dtype, int bitspersample, ssize_t runlen=0, numthreads=None, out=None
+    data, dtype, int bitspersample, ssize_t runlen=0, out=None
 ):
     """Unpack groups of bits in byte sequence into numpy array."""
     cdef:
@@ -1038,16 +869,13 @@ float24_check = imcd_check
 class FLOAT24:
     """Float24 Constants."""
 
-    class ROUND(enum.IntEnum):
-        TONEAREST = FE_TONEAREST
-        UPWARD = FE_UPWARD
-        DOWNWARD = FE_DOWNWARD
-        TOWARDZERO = FE_TOWARDZERO
+    ROUND_TONEAREST = FE_TONEAREST
+    ROUND_UPWARD = FE_UPWARD
+    ROUND_DOWNWARD = FE_DOWNWARD
+    ROUND_TOWARDZERO = FE_TOWARDZERO
 
 
-def float24_encode(
-    data, byteorder=None, rounding=None, numthreads=None, out=None
-):
+def float24_encode(data, byteorder=None, rounding=None, out=None):
     """Return byte sequence of float24 from numpy.float32 array.
 
     """
@@ -1108,7 +936,7 @@ def float24_encode(
     return _return_output(out, dstsize, ret, outgiven)
 
 
-def float24_decode(data, byteorder=None, numthreads=None, out=None):
+def float24_decode(data, byteorder=None, out=None):
     """Return numpy.float32 array from byte sequence of float24.
 
     """
@@ -1175,8 +1003,13 @@ def lzw_check(const uint8_t[::1] data):
     return bool(imcd_lzw_check(&data[0], data.size))
 
 
-def lzw_decode(data, buffersize=0, numthreads=None, out=None):
-    """Decompress LZW according to TIFF Revision 6, Section 13, June 3, 1992
+def lzw_encode(*args, **kwargs):
+    """Compress LZW."""
+    raise NotImplementedError('lzw_encode')
+
+
+def lzw_decode(data, buffersize=0, out=None):
+    """Decompress LZW.
 
     """
     cdef:
@@ -1219,42 +1052,6 @@ def lzw_decode(data, buffersize=0, numthreads=None, out=None):
             raise LzwError('imcd_lzw_decode', ret)
     finally:
         imcd_lzw_del(handle)
-
-    del dst
-    return _return_output(out, dstsize, ret, outgiven)
-
-
-
-def lzw_encode(data, level=None, buffersize=0, numthreads=None, out=None):
-    """Compress LZW according to TIFF Revision 6, Section 13, June 3, 1992
-
-    """
-    cdef:
-        const uint8_t[::1] src = _readable_input(data)
-        const uint8_t[::1] dst  # must be const to write to bytes
-        ssize_t srcsize = src.size
-        ssize_t dstsize
-        ssize_t ret = 0
-
-    if data is out:
-        raise ValueError('cannot encode in-place')
-
-    out, dstsize, outgiven, outtype = _parse_output(out)
-
-    if out is None:
-        if dstsize < 0:
-            dstsize = imcd_lzw_encode_size(srcsize)
-            if dstsize < 0:
-                raise LzwError(f'imcd_lzw_encode_size returned {dstsize}')
-        out = _create_output(outtype, dstsize)
-
-    dst = out
-    dstsize = dst.size
-
-    with nogil:
-        ret = imcd_lzw_encode(&src[0], srcsize, &dst[0], dstsize)
-    if ret < 0:
-        raise LzwError('imcd_lzw_encode', ret)
 
     del dst
     return _return_output(out, dstsize, ret, outgiven)

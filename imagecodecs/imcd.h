@@ -1,7 +1,7 @@
 /* imcd.h */
 
 /*
-Copyright (c) 2008-2022, Christoph Gohlke.
+Copyright (c) 2008-2021, Christoph Gohlke.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -34,10 +34,9 @@ POSSIBILITY OF SUCH DAMAGE.
 #ifndef IMCD_H
 #define IMCD_H
 
-#define IMCD_VERSION "2022.7.27"
+#define IMCD_VERSION "2021.1.8"
 
 #include <stdint.h>
-#include <stdbool.h>
 
 #ifndef HAVE_SSIZE_T
 #if defined(_MSC_VER)
@@ -82,8 +81,6 @@ typedef SSIZE_T ssize_t;
 #define IMCD_RUNTIME_ERROR -3
 #define IMCD_NOTIMPLEMENTED_ERROR -4
 #define IMCD_VALUE_ERROR -5
-#define IMCD_INPUT_CORRUPT -6
-#define IMCD_OUTPUT_TOO_SMALL -7
 
 #define IMCD_LZW_INVALID -10
 #define IMCD_LZW_NOTIMPLEMENTED -11
@@ -123,13 +120,8 @@ ssize_t imcd_packints_encode(
 );
 
 
-ssize_t imcd_packbits_decode_size(
+ssize_t imcd_packbits_size(
     const uint8_t* src,
-    const ssize_t srcsize
-);
-
-
-ssize_t imcd_packbits_encode_size(
     const ssize_t srcsize
 );
 
@@ -150,33 +142,6 @@ ssize_t imcd_packbits_encode(
 );
 
 
-ssize_t imcd_ccittrle_decode_size(
-    const uint8_t* src,
-    const ssize_t srcsize
-);
-
-
-ssize_t imcd_ccittrle_encode_size(
-    const ssize_t srcsize
-);
-
-
-ssize_t imcd_ccittrle_decode(
-    const uint8_t* src,
-    const ssize_t srcsize,
-    uint8_t* dst,
-    const ssize_t dstsize
-);
-
-
-ssize_t imcd_ccittrle_encode(
-    const uint8_t* src,
-    const ssize_t srcsize,
-    uint8_t* dst,
-    const ssize_t dstsize
-);
-
-
 ssize_t imcd_delta(
     void* src,
     const ssize_t srcsize,
@@ -185,7 +150,7 @@ ssize_t imcd_delta(
     const ssize_t dstsize,
     const ssize_t dststride,
     const ssize_t itemsize,
-    const bool decode
+    const int decode
 );
 
 
@@ -198,7 +163,7 @@ ssize_t imcd_diff(
     const ssize_t dststride,
     const ssize_t itemsize,
     const char itemtype,
-    const bool decode
+    const int decode
 );
 
 
@@ -210,11 +175,11 @@ ssize_t imcd_xor(
     const ssize_t dstsize,
     const ssize_t dststride,
     const ssize_t itemsize,
-    const bool decode
+    const int decode
 );
 
 
-ssize_t imcd_byteshuffle(
+ssize_t imcd_floatpred(
     void* src,
     const ssize_t srcsize,
     const ssize_t srcstride,
@@ -224,8 +189,7 @@ ssize_t imcd_byteshuffle(
     const ssize_t itemsize,
     const ssize_t samples,
     const char byteorder,
-    const bool delta,
-    const bool decode
+    const int decode
 );
 
 
@@ -285,19 +249,6 @@ ssize_t imcd_lzw_decode_size(
     imcd_lzw_handle_t* handle,
     const uint8_t* src,
     const ssize_t srcsize
-);
-
-
-ssize_t imcd_lzw_encode_size(
-    const ssize_t srcsize
-);
-
-
-ssize_t imcd_lzw_encode(
-    const uint8_t* src,
-    const ssize_t srcsize,
-    uint8_t* dst,
-    const ssize_t dstsize
 );
 
 
